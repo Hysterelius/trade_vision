@@ -1,14 +1,11 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+pub mod wapi {
+    pub mod misc_requests;
+    pub mod protocol;
+    pub mod quote;
+    pub mod utils;
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use wapi::misc_requests;
+pub use wapi::protocol;
+pub use wapi::quote;
+pub use wapi::utils;

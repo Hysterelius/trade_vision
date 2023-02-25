@@ -8,3 +8,12 @@ description = "Unofficial API for TradingView"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.91"
+regex = "1.7.0"
+tungstenite = {version = "0.18.0", features = ["rustls-tls-native-roots"]}
+tokio-tungstenite = {version = "0.18.0", features = ["rustls-tls-native-roots"]}
+http = "0.2.8"
+rand = "0.8.5"
