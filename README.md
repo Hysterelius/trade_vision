@@ -7,6 +7,6 @@ This is a pure Rust library which gets real time[^1] data from TradingView. Curr
 This aims to be a rust equivalent of [TradingView-API](https://github.com/Mathieu2301/TradingView-API).
 
 ## Features
-- Realtime data
+- Realtime data[^1]
 
 

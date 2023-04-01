@@ -12,8 +12,9 @@ use rand::{thread_rng, Rng};
 /// # Examples
 ///
 /// ```
+/// use trade_vision::utils::generate_session_id;
 /// let session_id = generate_session_id(None);
-/// assert!(session_id.starts_with("xs_"));
+/// assert!(session_id.starts_with("qs_"));
 ///
 /// let session_id = generate_session_id(Some("foo"));
 /// assert!(session_id.starts_with("foo_"));

@@ -1,3 +1,5 @@
+//! Manages the current TradingView session
+//! allows for the receiving of data and the defining of protocols
 use std::collections::hash_map;
 use std::collections::HashMap;
 
@@ -19,6 +21,7 @@ pub struct SymbolData {
     pub technical_analysis: f64,
 }
 
+/// All the possible fields for a TradingView session, impacts what is received
 const FIELDS: [&str; 48] = [
     "base-currency-logoid",
     "ch",
@@ -70,6 +73,16 @@ const FIELDS: [&str; 48] = [
     "provider_id",
 ];
 
+/// A session which encapsulates the current state of the TradingView session.
+///
+/// This session holds the id, the sending mpsc socket and the data that is incoming.
+///
+/// # Arguments
+///
+/// * `session_id`: The current id of the session, used to authenticate with TradingView, the session id
+/// * `tx_to_send`: A tokio mpsc sender stream, used for sending messages to the server
+/// * `data`: The current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
+
 pub struct Session {
     session_id: String,
     tx_to_send: mpsc::Sender<String>,
@@ -77,6 +90,10 @@ pub struct Session {
 }
 
 impl Session {
+    /// This initialises the TradingView session.
+    ///
+    /// It creates a unique ID for the session and sets the types of
+    /// data received from the servers.
     pub async fn start(&self) {
         let _ = self
             .tx_to_send

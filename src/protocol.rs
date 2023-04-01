@@ -32,6 +32,7 @@ pub struct WSPacket {
 /// # Examples
 ///
 /// ```
+/// use trade_vision::protocol::{format_ws_packet, WSPacket};
 /// let packet = WSPacket {
 ///     m: "foo".to_string(),
 ///     p: vec!["bar".to_string()],
@@ -64,6 +65,7 @@ pub fn format_ws_packet(packet: WSPacket) -> String {
 /// # Examples
 ///
 /// ```
+/// use trade_vision::protocol::format_ws_ping;
 /// let formatted_ping = format_ws_ping(1);
 ///
 /// assert_eq!(
@@ -91,6 +93,7 @@ pub fn format_ws_ping(num: u32) -> String {
 /// # Examples
 ///
 /// ```
+/// use trade_vision::protocol::parse_ws_packet;
 /// let parsed_packet = parse_ws_packet("~m~4~m~~h~1");
 ///
 /// assert_eq!(
@@ -113,29 +116,6 @@ pub fn parse_ws_packet(packet: &str) -> Vec<String> {
 
     packet_fields
 }
-
-// /// Converts an incoming string packet into a WSPacket format
-// ///
-// /// # Arguments
-// ///
-// /// * `packet` - The incoming packet in a form of a string
-// ///
-// /// # Examples
-// ///
-// /// ```
-// /// let parsed_packet = parse_packet_into_wspacket("~m~4~m~~h~1");
-// ///
-// /// assert_eq!(
-// ///     parsed_packet,
-// ///     vec!["~h~1"]
-// /// );
-// ///
-// /// ```
-// ///
-// ///
-// pub fn parse_packet_into_wspacket(packet: String) -> WSPacket {
-//     serde_json::from_str(&packet).unwrap()
-// }
 
 #[cfg(test)]
 mod tests {

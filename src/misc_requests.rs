@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```
-/// use tradingview_api::wapi::misc_requests::get_screener;
+/// use trade_vision::wapi::misc_requests::get_screener;
 /// assert_eq!(get_screener("Nyse"), "america");
-/// assert_eq!(get_screener("Foo"), "australia");
+/// assert_eq!(get_screener("Foo"), "foo");
 ///
 /// ```
 /// # Notes
@@ -51,9 +51,9 @@ pub fn get_screener(exchange: &str) -> String {
 ///
 /// ```
 /// let arg = 5;
-/// let answer = crate::wapi::misc_requests::add_one(arg);
+/// let answer = trade_vision::wapi::misc_requests::add_one(arg);
 ///
-/// assert_eq!(7, answer);
+/// assert_eq!(6, answer);
 /// ```
 pub fn add_one(x: i32) -> i32 {
     x + 1
