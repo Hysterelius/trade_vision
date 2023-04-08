@@ -1,3 +1,6 @@
+//! Houses utility functions that are used throughout the program to certain functions
+//! which allow for communication with the TradingView server
+
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 

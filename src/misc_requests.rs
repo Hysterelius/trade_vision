@@ -1,3 +1,6 @@
+//! Houses function for a collection of important TradingView functions
+//! which do not fit into any other category.
+
 use serde::{Deserialize, Serialize};
 
 /// Returns a string indicating which stock exchange the input belongs to.

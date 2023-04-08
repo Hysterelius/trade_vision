@@ -82,7 +82,6 @@ const FIELDS: [&str; 48] = [
 /// * `session_id`: The current id of the session, used to authenticate with TradingView, the session id
 /// * `tx_to_send`: A tokio mpsc sender stream, used for sending messages to the server
 /// * `data`: The current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
-
 pub struct Session {
     session_id: String,
     tx_to_send: mpsc::Sender<String>,
@@ -118,6 +117,11 @@ impl Session {
             .unwrap();
     }
 
+    /// This is adds a symbol which data is retrieved for.
+    ///
+    /// It uses the api to request a symbol, then over
+    /// the time interval data is sent to the client
+    /// this data shows the price.
     pub async fn add_symbol(&self, to_add: &str) {
         if !self.data.keys().any(|i| i == to_add) {
             let _ = self
@@ -171,6 +175,11 @@ pub async fn constructor(tx_to_send: mpsc::Sender<String>) -> Session {
     current_session
 }
 
+/// This sets the fields to be retrieved from TradingView.
+///
+/// There are two different types of fields that can be retrieved
+/// either all the fields available or just the fields
+/// that relate to price.
 fn get_quote_fields(field: FieldTypes) -> Vec<String> {
     match field {
         FieldTypes::All => FIELDS.map(|x| x.to_owned()).to_vec(),

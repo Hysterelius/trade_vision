@@ -8,6 +8,7 @@
 //! This library is a rewrite and reinterpretation of Mathieu's excellent [JS TradingView
 //! API library](https://github.com/Mathieu2301/TradingView-API)
 
+mod error;
 pub mod misc_requests;
 pub mod protocol;
 pub mod utils;
@@ -17,3 +18,5 @@ pub mod quote {
     //! the setting up of the handlers and starting the session
     pub mod session;
 }
+
+pub use error::Error;
