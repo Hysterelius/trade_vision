@@ -48,39 +48,56 @@ pub fn get_screener(exchange: &str) -> String {
     .to_string()
 }
 
-/// Adds one to the number given.
-///
-/// # Examples
-///
-/// ```
-/// let arg = 5;
-/// let answer = trade_vision::wapi::misc_requests::add_one(arg);
-///
-/// assert_eq!(6, answer);
-/// ```
-pub fn add_one(x: i32) -> i32 {
-    x + 1
-}
-
+/// This struct contains the necessary data required to retrieve data
+/// for a given symbol.
 #[derive(Deserialize, Serialize, Debug)]
 struct Symbol {
     symbols: Symbols,
     columns: Vec<String>,
 }
 
+// This struct is used to specify the tickers to get data for and the
+/// types of data to retrieve.
 #[derive(Deserialize, Serialize, Debug)]
 struct Symbols {
     tickers: Vec<String>,
     query: Queries,
 }
 
+/// This struct is used to specify the types of data to retrieve from the TradingView server.
 #[derive(Deserialize, Serialize, Debug)]
 struct Queries {
     types: Vec<i32>,
 }
 
+/// This array contains the default indicator to retrieve data for.
 pub const BASE_INDICATORS: [&str; 1] = ["Recommend.All"];
 
+/// This function retrieves technical analysis data for the given symbols
+/// using the provided interval and indicators.
+///
+/// # Arguments
+///
+/// * symbols - A vector of strings containing the symbols to retrieve data for.
+/// * interval - A string containing the interval to retrieve data for.
+/// * indicators - A vector of strings containing the indicators to retrieve data for.
+///
+/// # Returns
+///
+/// A f64 value containing the technical analysis data for the given symbols.
+///
+/// # Examples
+///
+/// ```
+///  use futures::join;
+///     let symbol = "AAPL";
+///     let interval = "1h";
+///     let indicators = vec!["Recommend.All"];
+///         let data = futures::executor::block_on(async {
+///     get_ta(vec![symbol], interval, indicators).await
+///     });
+///         println!("Technical analysis for {}: {}", symbol, data);
+/// ```
 pub async fn get_ta(symbols: Vec<&str>, interval: &str, indicators: Vec<&str>) -> f64 {
     let client = reqwest::Client::new();
 

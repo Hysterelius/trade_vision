@@ -13,10 +13,9 @@ pub mod misc_requests;
 pub mod protocol;
 pub mod utils;
 
-pub mod quote {
-    //! Contains modules for handling the events from TradingView. It manages
-    //! the setting up of the handlers and starting the session
-    pub mod session;
-}
+//! Contains modules for handling the events from TradingView. It manages
+//! the setting up of the handlers and starting the session
+mod quote;
 
 pub use error::Error;
+pub use quote::session;

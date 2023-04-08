@@ -7,6 +7,9 @@ use super::super::protocol::*;
 use super::super::utils::*;
 use tokio::sync::mpsc;
 
+/// The two possible field types that can be used for data retrieval:
+/// - All = all available TradingView fields/datapoints
+/// - Price = only fields/datapoints related to price
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
 enum FieldTypes {
@@ -14,6 +17,13 @@ enum FieldTypes {
     Price,
 }
 
+/// The data related to a particular symbol
+///
+/// # Arguments
+///
+/// * `symbol`: The specified symbol that data is being collected for, in format `MARKET:SYMBOL` e.g., `NYSE:AAPL`
+/// * `price`: A tokio mpsc sender stream, used for sending messages to the server
+/// * `technical_analysis`: The current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
 #[derive(Debug, Clone)]
 pub struct SymbolData {
     pub symbol: String,
@@ -135,6 +145,10 @@ impl Session {
         }
     }
 
+    /// Sets the price data for a given symbol.
+    ///
+    /// If the symbol exists in the data map, its internal data is modified to include the new price data.
+    /// If the symbol does not exist in the data map, a new entry with the symbol and the new price data is added.
     pub fn get_data(&self, symbol: &str) -> (f64, f64) {
         match self.data.get(symbol) {
             Some(internal_data) => internal_data.to_owned().to_owned(),
@@ -142,6 +156,10 @@ impl Session {
         }
     }
 
+    /// Sets the technical analysis (TA) data for a given symbol.
+    ///
+    /// If the symbol exists in the data map, its internal data is modified to include the new TA data.
+    /// If the symbol does not exist in the data map, a new entry with the symbol and the new TA data is added.
     pub fn set_data_price(&mut self, symbol: &str, data: f64) {
         self.data
             .entry(symbol.to_owned())
@@ -149,6 +167,10 @@ impl Session {
             .or_insert((data, 0.0));
     }
 
+    /// Sets the technical analysis (TA) data for a symbol.
+    ///
+    /// Updates the internal data hashmap for the specified symbol with the TA data.
+    /// If the symbol is not present in the hashmap, a new entry is created with TA data 0.0 for the price.
     pub fn set_data_ta(&mut self, symbol: &str, data: f64) {
         self.data
             .entry(symbol.to_owned())
@@ -156,11 +178,38 @@ impl Session {
             .or_insert((0.0, data));
     }
 
+    /// Returns a list of all symbols for which data has been retrieved.
+    ///
+    /// The returned list contains only the symbol names, without any associated data.
     pub fn keys(&self) -> hash_map::IntoKeys<std::string::String, (f64, f64)> {
         self.data.clone().into_keys()
     }
 }
 
+/// This asynchronous function is used to construct a new TradingView session. It takes in a
+/// `mpsc::Sender<String>` as an argument which is used to send data from the session to the client.
+///
+/// It generates a unique ID for the session using the generate_session_id function, and uses it to
+/// create a new Session instance. This instance is returned after invoking the start method
+/// which initializes the session and sets the types of data received from the servers.
+///
+/// # Arguments
+///
+/// * tx_to_send - An instance of `mpsc::Sender<String>` that is used to send data from the session to the client.
+///
+/// # Examples
+///
+/// ```
+/// use std::sync::mpsc;
+/// use tradingview_websocket_api::{Session, constructor};
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let (tx, _) = mpsc::channel();
+///     let session = constructor(tx).await;
+///     assert_eq!(session.get_session_id().len(), 36);
+/// }
+/// ```
 pub async fn constructor(tx_to_send: mpsc::Sender<String>) -> Session {
     let session_id = generate_session_id(None);
 

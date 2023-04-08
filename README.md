@@ -6,6 +6,25 @@ This is a pure Rust library which gets real time[^1] data from TradingView. Curr
 
 This aims to be a rust equivalent of [TradingView-API](https://github.com/Mathieu2301/TradingView-API).
 
+## Installation
+```bash
+cargo add trade_vision
+```
+
+or in your `cargo.toml`:
+```toml
+trade_vision = "0.1.0"
+```
+
+## Example uses
+This library could be used for creating a stock trading bot or stock tracker.
+
+Though it cannot currently retrieve graphs from TradingView.
+
+Check out the examples folder for example uses!
+
+
+
 ## Features
 - Realtime data[^1]
 
