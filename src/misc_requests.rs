@@ -45,7 +45,6 @@ pub fn get_screener(exchange: &str) -> String {
         "BINANCE" | "BITSTAMP" | "COINBASE" => "crypto".to_string(),      // 🅱️ Crypto
         _ => exchange.to_ascii_lowercase(),                               // 🏳️ Another exchange
     }
-    
 }
 
 /// This struct contains the necessary data required to retrieve data
@@ -144,8 +143,6 @@ pub async fn get_ta(symbols: Vec<&str>, interval: &str, indicators: Vec<&str>) -
         .unwrap();
 
     // println!("{}", data["data"][0]["d"]);
-
-    
 
     // let data = serde_json::to_value(12).expect("failed when value");
 
