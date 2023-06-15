@@ -45,7 +45,7 @@ pub fn get_screener(exchange: &str) -> String {
         "BINANCE" | "BITSTAMP" | "COINBASE" => "crypto".to_string(),      // 🅱️ Crypto
         _ => exchange.to_ascii_lowercase(),                               // 🏳️ Another exchange
     }
-    .to_string()
+    
 }
 
 /// This struct contains the necessary data required to retrieve data
@@ -130,7 +130,7 @@ pub async fn get_ta(symbols: Vec<&str>, interval: &str, indicators: Vec<&str>) -
 
     let url = format!(
         "https://scanner.tradingview.com/{}/scan",
-        get_screener((symbols[0].split(":").collect::<Vec<&str>>())[0])
+        get_screener((symbols[0].split(':').collect::<Vec<&str>>())[0])
     );
 
     let data: serde_json::Value = client
@@ -145,11 +145,11 @@ pub async fn get_ta(symbols: Vec<&str>, interval: &str, indicators: Vec<&str>) -
 
     // println!("{}", data["data"][0]["d"]);
 
-    let data = data["data"][0]["d"][0].as_f64().unwrap_or(0.0);
+    
 
     // let data = serde_json::to_value(12).expect("failed when value");
 
-    data
+    data["data"][0]["d"][0].as_f64().unwrap_or(0.0)
 }
 
 #[test]

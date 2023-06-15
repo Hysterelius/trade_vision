@@ -80,7 +80,7 @@ pub fn format_ws_ping(num: u32) -> String {
     format!(
         "~m~{}~m~~h~{}",
         (num.to_string().len() + 3),
-        num.to_string()
+        num
     )
 }
 
@@ -109,7 +109,7 @@ pub fn parse_ws_packet(packet: &str) -> Vec<String> {
     let splitter_regex = Regex::new(r"~m~[0-9]{1,}~m~").unwrap();
 
     let packet_fields: Vec<String> = splitter_regex
-        .split(&packet)
+        .split(packet)
         .filter(|x| !x.is_empty())
         .map(|x| x.to_owned())
         .collect();

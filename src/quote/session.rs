@@ -5,7 +5,21 @@ use std::collections::HashMap;
 
 use super::super::protocol::*;
 use super::super::utils::*;
+use futures_util::stream::SplitStream;
 use tokio::sync::mpsc;
+
+
+
+use tokio_tungstenite::{
+    connect_async, tungstenite::client::IntoClientRequest, tungstenite::Message, MaybeTlsStream,
+    WebSocketStream,
+};
+
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+
+use tokio::net::TcpStream;
+
+const CONNECTION: &str = "wss://data.tradingview.com/socket.io/websocket";
 
 /// The two possible field types that can be used for data retrieval:
 /// - All = all available TradingView fields/datapoints
@@ -94,8 +108,10 @@ const FIELDS: [&str; 48] = [
 /// * `data`: The current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
 pub struct Session {
     session_id: String,
-    tx_to_send: mpsc::Sender<String>,
+    pub tx_to_send: mpsc::Sender<String>,
     data: HashMap<String, (f64, f64)>,
+    rx_to_send: Option<mpsc::Receiver<String>>,
+    pub read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
 }
 
 impl Session {
@@ -104,8 +120,7 @@ impl Session {
     /// It creates a unique ID for the session and sets the types of
     /// data received from the servers.
     pub async fn start(&self) {
-        let _ = self
-            .tx_to_send
+        self.tx_to_send
             .send(format_ws_packet(WSPacket {
                 m: "quote_create_session".to_string(),
                 p: vec![(self.session_id).to_owned()],
@@ -113,8 +128,7 @@ impl Session {
             .await
             .unwrap();
 
-        let _ = self
-            .tx_to_send
+        self.tx_to_send
             .send(format_ws_packet(WSPacket {
                 m: "quote_set_fields".to_string(),
                 p: [
@@ -127,6 +141,35 @@ impl Session {
             .unwrap();
     }
 
+    pub async fn connect(&mut self) {
+        // Connect to the WebSocket API and split the stream into read and write halves
+        let mut request = CONNECTION.into_client_request().unwrap();
+        request.headers_mut().append(
+            http::header::ORIGIN,
+            "https://s.tradingview.com".parse().unwrap(),
+        );
+
+        let (ws_stream, _) = connect_async(request).await.expect("Failed to connect");
+
+        let (write, read) = ws_stream.split();
+
+        self.read = Some(read);
+
+        let rx_to_send = self.rx_to_send.take().expect("rx_to_send is None");
+
+        // Spawn a task to send messages to the server
+        tokio::spawn(send_message(rx_to_send, write));
+
+        // Send a message to the server to set the authorization token
+        self.tx_to_send
+            .send(format_ws_packet(WSPacket {
+                m: "set_auth_token".to_owned(),
+                p: vec!["unauthorized_user_token".to_owned()],
+            }))
+            .await
+            .unwrap();
+    }
+
     /// This is adds a symbol which data is retrieved for.
     ///
     /// It uses the api to request a symbol, then over
@@ -134,18 +177,17 @@ impl Session {
     /// this data shows the price.
     pub async fn add_symbol(&self, to_add: &str) {
         if !self.data.keys().any(|i| i == to_add) {
-            let _ = self
-                .tx_to_send
+            self.tx_to_send
                 .send(format_ws_packet(WSPacket {
                     m: "quote_add_symbols".to_string(),
-                    p: vec![(&self.session_id).to_owned(), to_add.to_owned()],
+                    p: vec![self.session_id.to_owned(), to_add.to_owned()],
                 }))
                 .await
                 .unwrap();
         }
     }
 
-    /// Sets the price data for a given symbol.
+    /// Gets the price data for a given symbol.
     ///
     /// If the symbol exists in the data map, its internal data is modified to include the new price data.
     /// If the symbol does not exist in the data map, a new entry with the symbol and the new price data is added.
@@ -163,7 +205,7 @@ impl Session {
     pub fn set_data_price(&mut self, symbol: &str, data: f64) {
         self.data
             .entry(symbol.to_owned())
-            .and_modify(|x| *x = (data, (*x).1))
+            .and_modify(|x| *x = (data, x.1))
             .or_insert((data, 0.0));
     }
 
@@ -174,7 +216,7 @@ impl Session {
     pub fn set_data_ta(&mut self, symbol: &str, data: f64) {
         self.data
             .entry(symbol.to_owned())
-            .and_modify(|x| *x = ((*x).0, data))
+            .and_modify(|x| *x = (x.0, data))
             .or_insert((0.0, data));
     }
 
@@ -183,6 +225,27 @@ impl Session {
     /// The returned list contains only the symbol names, without any associated data.
     pub fn keys(&self) -> hash_map::IntoKeys<std::string::String, (f64, f64)> {
         self.data.clone().into_keys()
+    }
+}
+
+async fn send_message(
+    mut rx: mpsc::Receiver<String>,
+    mut interface: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+) {
+    loop {
+        match rx.recv().await {
+            Some(data) => {
+                println!("\x1b[92m🠱\x1b[0m {:#?}", &data);
+
+                let message = Message::from(data);
+
+                interface.send(message).await.unwrap();
+            }
+            None => {
+                // println!("continued");
+                continue;
+            }
+        }
     }
 }
 
@@ -210,13 +273,17 @@ impl Session {
 ///     assert_eq!(session.get_session_id().len(), 36);
 /// }
 /// ```
-pub async fn constructor(tx_to_send: mpsc::Sender<String>) -> Session {
+pub async fn constructor() -> Session {
     let session_id = generate_session_id(None);
 
+    let (tx_to_send, rx_to_send) = mpsc::channel::<String>(20);
+
     let current_session = Session {
-        session_id: session_id,
-        tx_to_send: tx_to_send,
+        session_id,
+        tx_to_send,
         data: HashMap::new(),
+        rx_to_send: Some(rx_to_send),
+        read: None,
     };
 
     current_session.start().await;
