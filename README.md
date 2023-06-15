@@ -1,4 +1,6 @@
-# TradeVision
+:rotating_light: trade_vision is currently in alpha, so it is not recommended for us in any production applications, as features will change rapidly.
+
+# trade_vision
 
 This is a pure Rust library which gets real time[^1] data from TradingView. Currently only supporting Rust, it can support JS/TS with Tauri and other equivalents.
 
