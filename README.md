@@ -1,4 +1,4 @@
-:rotating_light: trade_vision is currently in alpha, so it is not recommended for us in any production applications, as features will change rapidly.
+#### _:rotating_light: trade_vision is currently in alpha, so it is not recommended for us in any production applications, as features will change rapidly._
 
 # trade_vision
 
