@@ -256,7 +256,7 @@ impl Session {
                                 {
                                     let d = d.clone();
                                     let tx_to_send = tx_to_send.clone();
-                                    let processor = processor.clone();
+                                    let processor = *processor;
                                     tokio::task::spawn_blocking(move || {
                                         processor(&d, tx_to_send.clone());
                                     })
@@ -362,7 +362,7 @@ pub type MessageProcessor = fn(&str, mpsc::Sender<String>);
 /// The function cannot be async because it is used in a for loop in the `process_stream` method and rust doesn't easily support async
 /// function types
 // TODO: change to support async https://stackoverflow.com/questions/66769143/rust-passing-async-function-pointers https://users.rust-lang.org/t/how-to-store-async-function-pointer/38343/4
-pub fn process_heartbeat<'a>(message: &'a str, tx_to_send: mpsc::Sender<String>) {
+pub fn process_heartbeat(message: &str, tx_to_send: mpsc::Sender<String>) {
     if message.contains("~h~") {
         let ping = format_ws_ping(message.replace("~h~", "").parse().unwrap());
         tx_to_send.blocking_send(ping).unwrap();
