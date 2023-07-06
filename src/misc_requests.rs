@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```
-/// use trade_vision::wapi::misc_requests::get_screener;
+/// use trade_vision::misc_requests::get_screener;
 /// assert_eq!(get_screener("Nyse"), "america");
 /// assert_eq!(get_screener("Foo"), "foo");
 ///
@@ -88,14 +88,15 @@ pub const BASE_INDICATORS: [&str; 1] = ["Recommend.All"];
 /// # Examples
 ///
 /// ```
-///  use futures::join;
+/// use trade_vision::misc_requests::get_ta;
+///
+/// async fn get_data() {
 ///     let symbol = "AAPL";
-///     let interval = "1h";
 ///     let indicators = vec!["Recommend.All"];
-///         let data = futures::executor::block_on(async {
-///     get_ta(vec![symbol], interval, indicators).await
-///     });
-///         println!("Technical analysis for {}: {}", symbol, data);
+///     let interval = "1h";
+///     let data = get_ta(vec![symbol], interval, indicators).await;
+///     println!("Technical analysis for {}: {}", symbol, data);
+/// }
 /// ```
 pub async fn get_ta(symbols: Vec<&str>, interval: &str, indicators: Vec<&str>) -> f64 {
     let client = reqwest::Client::new();

@@ -5,10 +5,10 @@ use std::collections::HashMap;
 
 use super::super::protocol::*;
 use super::super::utils::*;
+use futures_util::pin_mut;
 use futures_util::stream::SplitStream;
+
 use tokio::sync::mpsc;
-
-
 
 use tokio_tungstenite::{
     connect_async, tungstenite::client::IntoClientRequest, tungstenite::Message, MaybeTlsStream,
@@ -112,6 +112,7 @@ pub struct Session {
     data: HashMap<String, (f64, f64)>,
     rx_to_send: Option<mpsc::Receiver<String>>,
     pub read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
+    processors: Vec<MessageProcessor>,
 }
 
 impl Session {
@@ -226,6 +227,56 @@ impl Session {
     pub fn keys(&self) -> hash_map::IntoKeys<std::string::String, (f64, f64)> {
         self.data.clone().into_keys()
     }
+
+    /// Process the incoming websocket stream
+    pub async fn process_stream(&mut self) {
+        // Create a new stream from the websocket
+        let ws_to_stream = {
+            // For each message received
+            self.read.take().expect("rx_to_send is None").for_each(
+                |message: Result<Message, tokio_tungstenite::tungstenite::Error>| {
+                    // Clone the sender
+                    let tx_to_send = self.tx_to_send.clone();
+                    let processors = self.processors.clone();
+                    async move {
+                        // Unwrap the message
+                        let data = message
+                            .expect("Message is an invalid format")
+                            .into_text()
+                            .expect("Could not turn into text");
+                        // Parse the message
+                        let parsed_data = parse_ws_packet(&data);
+                        // Print the message to the terminal
+                        println!("\x1b[91m🠳\x1b[0m {:#?}", data);
+
+                        // For each parsed message
+                        for d in parsed_data {
+                            // If the message is a heartbeat, send a heartbeat back
+                            for processor in processors.iter() {
+                                {
+                                    let d = d.clone();
+                                    let tx_to_send = tx_to_send.clone();
+                                    let processor = processor.clone();
+                                    tokio::task::spawn_blocking(move || {
+                                        processor(&d, tx_to_send.clone());
+                                    })
+                                    .await
+                                    .expect("Task panicked")
+                                }
+                            }
+                        }
+                    }
+                },
+            )
+        };
+
+        pin_mut!(ws_to_stream);
+        ws_to_stream.await;
+    }
+
+    pub fn add_processor(&mut self, processor: MessageProcessor) {
+        self.processors.push(processor);
+    }
 }
 
 async fn send_message(
@@ -263,14 +314,11 @@ async fn send_message(
 /// # Examples
 ///
 /// ```
-/// use std::sync::mpsc;
-/// use tradingview_websocket_api::{Session, constructor};
+/// use trade_vision::session;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let (tx, _) = mpsc::channel();
-///     let session = constructor(tx).await;
-///     assert_eq!(session.get_session_id().len(), 36);
+///     let session = session::constructor().await;
 /// }
 /// ```
 pub async fn constructor() -> Session {
@@ -284,14 +332,13 @@ pub async fn constructor() -> Session {
         data: HashMap::new(),
         rx_to_send: Some(rx_to_send),
         read: None,
+        processors: vec![process_heartbeat],
     };
 
     current_session.start().await;
 
     current_session
 }
-
-/// This sets the fields to be retrieved from TradingView.
 ///
 /// There are two different types of fields that can be retrieved
 /// either all the fields available or just the fields
@@ -306,6 +353,19 @@ fn get_quote_fields(field: FieldTypes) -> Vec<String> {
             "price_52_week_high".to_owned(),
             "price_52_week_low".to_owned(),
         ],
+    }
+}
+
+pub type MessageProcessor = fn(&str, mpsc::Sender<String>);
+
+/// This is a type of function that is able to process a message from the TradingView websocket.
+/// The function cannot be async because it is used in a for loop in the `process_stream` method and rust doesn't easily support async
+/// function types
+// TODO: change to support async https://stackoverflow.com/questions/66769143/rust-passing-async-function-pointers https://users.rust-lang.org/t/how-to-store-async-function-pointer/38343/4
+pub fn process_heartbeat<'a>(message: &'a str, tx_to_send: mpsc::Sender<String>) {
+    if message.contains("~h~") {
+        let ping = format_ws_ping(message.replace("~h~", "").parse().unwrap());
+        tx_to_send.blocking_send(ping).unwrap();
     }
 }
 
