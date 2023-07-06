@@ -1,3 +1,7 @@
+
+[![Crates.io](https://badgen.net/crates/v/trade_vision)](https://crates.io/crates/trade_vision)
+[![Build Status](https://badgen.net/github/checks/hysterelius/trade_vision)](https://github.com/Hysterelius/trade_vision/actions)
+
 #### _:rotating_light: trade_vision is currently in alpha, so it is not recommended for us in any production applications, as features will change rapidly._
 
 # trade_vision
