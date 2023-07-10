@@ -21,4 +21,3 @@ tokio-tungstenite = {version = "0.19.0", features = ["rustls-tls-native-roots"]}
 http = "0.2.8"
 rand = "0.8.5"
 futures-util = "0.3.25"
-# macro_rules_attribute = "^0.2.0"

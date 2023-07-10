@@ -19,7 +19,7 @@ cargo add trade_vision
 
 or in your `cargo.toml`:
 ```toml
-trade_vision = "0.1.0"
+trade_vision = "0.1.1"
 ```
 
 ## Example uses

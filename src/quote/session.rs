@@ -356,6 +356,7 @@ fn get_quote_fields(field: FieldTypes) -> Vec<String> {
     }
 }
 
+/// Type of function that can process messages, cannot be async
 pub type MessageProcessor = fn(&str, mpsc::Sender<String>);
 
 /// This is a type of function that is able to process a message from the TradingView websocket.
