@@ -15,6 +15,8 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
+use futures_util::future::BoxFuture;
+
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 
 use tokio::net::TcpStream;
@@ -29,6 +31,15 @@ const CONNECTION: &str = "wss://data.tradingview.com/socket.io/websocket";
 enum FieldTypes {
     All,
     Price,
+}
+
+#[macro_use]
+mod message_processors {
+    macro_rules! convert_to_message_processor {
+        ($f:expr) => {
+            |message, tx_to_send| Box::pin($f(message, tx_to_send))
+        };
+    }
 }
 
 /// The data related to a particular symbol
@@ -97,15 +108,34 @@ const FIELDS: [&str; 48] = [
     "provider_id",
 ];
 
+/// A chart session which encapsulates the current state of the TradingView chart session.
+///
+/// This session holds the chart session id, the replay session id, and a boolean indicating whether the session is in replay mode.
+///
+/// # Fields
+///
+/// * `chart_session_id`: The current id of the chart session, used to authenticate with TradingView
+/// * `replay_session_id`: The current id of the replay session, used to authenticate with TradingView when in replay mode
+/// * `replay_mode`: A boolean indicating whether the session is in replay mode or not
+pub struct ChartSession {
+    pub chart_session_id: String,
+    pub replay_session_id: String,
+    pub replay_mode: bool,
+}
+
 /// A session which encapsulates the current state of the TradingView session.
 ///
 /// This session holds the id, the sending mpsc socket and the data that is incoming.
 ///
-/// # Arguments
+/// # Fields
 ///
-/// * `session_id`: The current id of the session, used to authenticate with TradingView, the session id
+/// * `session_id`: The current id of the session, used to authenticate with TradingView
 /// * `tx_to_send`: A tokio mpsc sender stream, used for sending messages to the server
-/// * `data`: The current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
+/// * `data`: A hashmap of the current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
+/// * `rx_to_send`: An optional tokio mpsc receiver stream, used for receiving messages from the server
+/// * `read`: An optional tokio WebSocket stream, used for reading messages from the server
+/// * `processors`: A vector of message processors, used for processing incoming messages from the server
+/// * `chart_details`: An optional `ChartSession` struct containing the current state of the TradingView chart session
 pub struct Session {
     session_id: String,
     pub tx_to_send: mpsc::Sender<String>,
@@ -113,6 +143,7 @@ pub struct Session {
     rx_to_send: Option<mpsc::Receiver<String>>,
     pub read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
     processors: Vec<MessageProcessor>,
+    pub chart_details: Option<ChartSession>,
 }
 
 impl Session {
@@ -254,14 +285,16 @@ impl Session {
                             // If the message is a heartbeat, send a heartbeat back
                             for processor in processors.iter() {
                                 {
-                                    let d = d.clone();
-                                    let tx_to_send = tx_to_send.clone();
-                                    let processor = *processor;
-                                    tokio::task::spawn_blocking(move || {
-                                        processor(&d, tx_to_send.clone());
-                                    })
-                                    .await
-                                    .expect("Task panicked")
+                                    tokio::task::spawn({
+                                        let d = d.clone();
+                                        let tx_to_send = tx_to_send.clone();
+                                        let processor = *processor;
+                                        async move {
+                                            processor(d.to_string(), tx_to_send.clone()).await;
+                                        }
+                                    });
+                                    // .await
+                                    // .expect("Task panicked")
                                 }
                             }
                         }
@@ -332,7 +365,8 @@ pub async fn constructor() -> Session {
         data: HashMap::new(),
         rx_to_send: Some(rx_to_send),
         read: None,
-        processors: vec![process_heartbeat],
+        processors: vec![convert_to_message_processor!(process_heartbeat)],
+        chart_details: None,
     };
 
     current_session.start().await;
@@ -356,17 +390,24 @@ fn get_quote_fields(field: FieldTypes) -> Vec<String> {
     }
 }
 
+// Thanks to help of rust forum: https://users.rust-lang.org/t/general-async-function-pointer/97997
 /// Type of function that can process messages, cannot be async
-pub type MessageProcessor = fn(&str, mpsc::Sender<String>);
+pub type MessageProcessor = fn(String, mpsc::Sender<String>) -> BoxFuture<'static, ()>;
+
+// pub fn convert_to_message_processor<Fut: Future<Output = ()> + Send + 'static>(
+//     f: impl Fn(String, mpsc::Sender<String>) -> Fut + 'static,
+// ) -> MessageProcessor {
+//     Box::new(move |message, tx_to_send| Box::pin(f(message, tx_to_send)))
+// }
 
 /// This is a type of function that is able to process a message from the TradingView websocket.
 /// The function cannot be async because it is used in a for loop in the `process_stream` method and rust doesn't easily support async
 /// function types
 // TODO: change to support async https://stackoverflow.com/questions/66769143/rust-passing-async-function-pointers https://users.rust-lang.org/t/how-to-store-async-function-pointer/38343/4
-pub fn process_heartbeat(message: &str, tx_to_send: mpsc::Sender<String>) {
+pub async fn process_heartbeat(message: String, tx_to_send: mpsc::Sender<String>) {
     if message.contains("~h~") {
         let ping = format_ws_ping(message.replace("~h~", "").parse().unwrap());
-        tx_to_send.blocking_send(ping).unwrap();
+        tx_to_send.send(ping).await.unwrap();
     }
 }
 

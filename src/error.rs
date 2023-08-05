@@ -19,6 +19,8 @@ pub enum Error {
     /// The indicator is invalid or not supported by the API.
     InvalidIndicator(String),
 
+    ChartSessionAlreadyInitialised(),
+
     /// An Unknown error has occurred, consult message for further clarification.
     UnknownError(String),
 }
@@ -35,6 +37,10 @@ impl fmt::Display for Error {
             Error::InvalidTimeframe(_) => write!(f, "Invalid Time frame"),
             Error::InvalidIndicator(_) => write!(f, "Invalid Indicator"),
 
+            Error::ChartSessionAlreadyInitialised() => {
+                write!(f, "Chart session already initialised")
+            }
+
             Error::UnknownError(_) => write!(f, "Unknown error has occurred"),
         }
     }
@@ -50,6 +56,9 @@ impl Debug for Error {
             Self::InvalidTimezone(arg0) => f.debug_tuple("InvalidTimezone").field(arg0).finish(),
             Self::InvalidTimeframe(arg0) => f.debug_tuple("InvalidTimeframe").field(arg0).finish(),
             Self::InvalidIndicator(arg0) => f.debug_tuple("InvalidIndicator").field(arg0).finish(),
+            Self::ChartSessionAlreadyInitialised() => {
+                f.debug_tuple("ChartSessionAlreadyInitialised").finish()
+            }
             Self::UnknownError(arg0) => f.debug_tuple("UnknownError").field(arg0).finish(),
         }
     }

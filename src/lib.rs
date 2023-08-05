@@ -19,3 +19,6 @@ mod quote;
 
 pub use error::Error;
 pub use quote::session;
+
+mod chart;
+// pub use chart::session;
