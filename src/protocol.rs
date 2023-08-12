@@ -23,6 +23,13 @@ pub struct WSPacket {
     pub p: Vec<String>,
 }
 
+impl WSPacket {
+    pub fn format(&self) -> String {
+        let json = serde_json::to_string(self).unwrap();
+        format!("~m~{}~m~{}", json.len(), json)
+    }
+}
+
 /// Formats a packet for sending to the server as a request in a valid TradingView schema
 ///
 /// # Arguments
@@ -51,6 +58,7 @@ pub struct WSPacket {
 ///
 /// The m value is the length of the resulting json string **it does not include the `\` to lint the `"`**
 ///
+#[deprecated]
 pub fn format_ws_packet(packet: WSPacket) -> String {
     let json = serde_json::to_string(&packet).unwrap();
     format!("~m~{}~m~{}", json.len(), json)
@@ -77,11 +85,7 @@ pub fn format_ws_packet(packet: WSPacket) -> String {
 ///
 ///
 pub fn format_ws_ping(num: u32) -> String {
-    format!(
-        "~m~{}~m~~h~{}",
-        (num.to_string().len() + 3),
-        num
-    )
+    format!("~m~{}~m~~h~{}", (num.to_string().len() + 3), num)
 }
 
 /// Takes a incoming TradingView packet and reformats it for interpretation.
@@ -146,7 +150,7 @@ mod tests {
             p: vec!["bar".to_string()],
         };
 
-        let formatted_packet = format_ws_packet(packet);
+        let formatted_packet = packet.format();
 
         assert_eq!(
             formatted_packet, "~m~23~m~{\"m\":\"foo\",\"p\":[\"bar\"]}",

@@ -11,5 +11,5 @@ async fn main() {
     // Adds the ETH/USDT symbol to the session
     session.add_symbol("BINANCE:ETHUSDT").await;
 
-    session.process_stream().await;
+    // session.process_stream().await;
 }

@@ -1,7 +1,10 @@
-use crate::session::{ChartSession, Session};
-use crate::utils::generate_session_id;
-use crate::Error;
+use tokio::sync::mpsc;
 
+use crate::protocol::WSPacket;
+use crate::session::Session;
+use crate::utils::generate_session_id;
+
+#[allow(unused)]
 enum ChartTypes {
     HeikinAshi,
     Renko,
@@ -11,6 +14,15 @@ enum ChartTypes {
     Range,
 }
 
+#[allow(unused)]
+pub struct ChartSession {
+    session: Option<Session>,
+    chart_session_id: String,
+    replay_session_id: String,
+    replay_mode: bool,
+}
+
+#[allow(unused)]
 impl ChartTypes {
     fn to_string(&self) -> &str {
         match self {
@@ -24,37 +36,48 @@ impl ChartTypes {
     }
 }
 
-// pub struct ChartSession {
-//     ChartSessionID: String,
-//     ReplaySessionID: String,
-//     session: Session,
-// }
+impl ChartSession {
+    pub fn new(session: Session) -> Self {
+        let chart_session_id = generate_session_id(Some("cs"));
+        // Not using send(), as this the initial function, which I don't want to be async as it has to be certain that the chart has been initialised
+        session
+            .tx_to_send
+            .blocking_send(
+                WSPacket {
+                    m: "chart_delete_session".to_string(),
+                    p: vec![chart_session_id.clone()],
+                }
+                .format(),
+            )
+            .unwrap();
 
-impl Session {
-    pub fn chart(&mut self) -> Result<(), Error> {
-        match self.chart_details {
-            Some(_) => return Err(Error::ChartSessionAlreadyInitialised()),
-            None => {
-                self.chart_details = Some(ChartSession {
-                    chart_session_id: generate_session_id(Some("cs")),
-                    replay_session_id: generate_session_id(Some("rs")),
-                    replay_mode: false,
-                });
-            }
+        Self {
+            session: Some(session),
+            chart_session_id,
+            replay_session_id: generate_session_id(Some("rs")),
+            replay_mode: false,
         }
-
-        Ok(())
     }
 
-    // self.sessions.insert(
-    //     self.chartSessionID.clone(),
-    //     Session {
-    //         chartSessionID: self.chartSessionID.clone(),
-    //         studyListeners: HashMap::new(),
-    //         infos: HashMap::new(),
-    //         chartSession: self,
-    //         indexes: HashMap::new(),
-    //         periods: HashMap::new(),
-    //     },
-    // );
+    pub async fn close(&mut self) -> Session {
+        let session = self.session.as_ref().expect("No session to close");
+        let _ = session
+            .tx_to_send
+            .send(
+                WSPacket {
+                    m: "chart_delete_session".to_string(),
+                    p: vec![self.chart_session_id.clone()],
+                }
+                .format(),
+            )
+            .await;
+        match self.session.take() {
+            Some(s) => s,
+            None => panic!("No session to close"),
+        }
+    }
+}
+
+pub async fn process_chart_data(_message: String, _tx_to_send: mpsc::Sender<String>) {
+    todo!();
 }

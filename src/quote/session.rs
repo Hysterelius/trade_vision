@@ -2,14 +2,16 @@
 //! allows for the receiving of data and the defining of protocols
 use std::collections::hash_map;
 use std::collections::HashMap;
+use std::pin::Pin;
 
-use super::super::protocol::*;
-use super::super::utils::*;
-use futures_util::pin_mut;
+use crate::protocol::*;
+use crate::utils::*;
 use futures_util::stream::SplitStream;
+use futures_util::Future;
 
 use tokio::sync::mpsc;
 
+use tokio::sync::mpsc::Sender;
 use tokio_tungstenite::{
     connect_async, tungstenite::client::IntoClientRequest, tungstenite::Message, MaybeTlsStream,
     WebSocketStream,
@@ -108,21 +110,6 @@ const FIELDS: [&str; 48] = [
     "provider_id",
 ];
 
-/// A chart session which encapsulates the current state of the TradingView chart session.
-///
-/// This session holds the chart session id, the replay session id, and a boolean indicating whether the session is in replay mode.
-///
-/// # Fields
-///
-/// * `chart_session_id`: The current id of the chart session, used to authenticate with TradingView
-/// * `replay_session_id`: The current id of the replay session, used to authenticate with TradingView when in replay mode
-/// * `replay_mode`: A boolean indicating whether the session is in replay mode or not
-pub struct ChartSession {
-    pub chart_session_id: String,
-    pub replay_session_id: String,
-    pub replay_mode: bool,
-}
-
 /// A session which encapsulates the current state of the TradingView session.
 ///
 /// This session holds the id, the sending mpsc socket and the data that is incoming.
@@ -137,13 +124,12 @@ pub struct ChartSession {
 /// * `processors`: A vector of message processors, used for processing incoming messages from the server
 /// * `chart_details`: An optional `ChartSession` struct containing the current state of the TradingView chart session
 pub struct Session {
-    session_id: String,
+    pub session_id: String,
     pub tx_to_send: mpsc::Sender<String>,
     data: HashMap<String, (f64, f64)>,
     rx_to_send: Option<mpsc::Receiver<String>>,
     pub read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
     processors: Vec<MessageProcessor>,
-    pub chart_details: Option<ChartSession>,
 }
 
 impl Session {
@@ -153,22 +139,28 @@ impl Session {
     /// data received from the servers.
     pub async fn start(&self) {
         self.tx_to_send
-            .send(format_ws_packet(WSPacket {
-                m: "quote_create_session".to_string(),
-                p: vec![(self.session_id).to_owned()],
-            }))
+            .send(
+                WSPacket {
+                    m: "quote_create_session".to_string(),
+                    p: vec![(self.session_id).to_owned()],
+                }
+                .format(),
+            )
             .await
             .unwrap();
 
         self.tx_to_send
-            .send(format_ws_packet(WSPacket {
-                m: "quote_set_fields".to_string(),
-                p: [
-                    vec![(self.session_id).to_owned()],
-                    get_quote_fields(FieldTypes::Price),
-                ]
-                .concat(),
-            }))
+            .send(
+                WSPacket {
+                    m: "quote_set_fields".to_string(),
+                    p: [
+                        vec![(self.session_id).to_owned()],
+                        get_quote_fields(FieldTypes::Price),
+                    ]
+                    .concat(),
+                }
+                .format(),
+            )
             .await
             .unwrap();
     }
@@ -185,19 +177,27 @@ impl Session {
 
         let (write, read) = ws_stream.split();
 
-        self.read = Some(read);
+        // self.read = Some(read);
 
         let rx_to_send = self.rx_to_send.take().expect("rx_to_send is None");
 
         // Spawn a task to send messages to the server
         tokio::spawn(send_message(rx_to_send, write));
+        tokio::spawn(handle_messages(
+            read,
+            self.tx_to_send.clone(),
+            self.processors.clone(),
+        ));
 
         // Send a message to the server to set the authorization token
         self.tx_to_send
-            .send(format_ws_packet(WSPacket {
-                m: "set_auth_token".to_owned(),
-                p: vec!["unauthorized_user_token".to_owned()],
-            }))
+            .send(
+                WSPacket {
+                    m: "set_auth_token".to_owned(),
+                    p: vec!["unauthorized_user_token".to_owned()],
+                }
+                .format(),
+            )
             .await
             .unwrap();
     }
@@ -210,10 +210,13 @@ impl Session {
     pub async fn add_symbol(&self, to_add: &str) {
         if !self.data.keys().any(|i| i == to_add) {
             self.tx_to_send
-                .send(format_ws_packet(WSPacket {
-                    m: "quote_add_symbols".to_string(),
-                    p: vec![self.session_id.to_owned(), to_add.to_owned()],
-                }))
+                .send(
+                    WSPacket {
+                        m: "quote_add_symbols".to_string(),
+                        p: vec![self.session_id.to_owned(), to_add.to_owned()],
+                    }
+                    .format(),
+                )
                 .await
                 .unwrap();
         }
@@ -259,56 +262,81 @@ impl Session {
         self.data.clone().into_keys()
     }
 
-    /// Process the incoming websocket stream
-    pub async fn process_stream(&mut self) {
-        // Create a new stream from the websocket
-        let ws_to_stream = {
-            // For each message received
-            self.read.take().expect("rx_to_send is None").for_each(
-                |message: Result<Message, tokio_tungstenite::tungstenite::Error>| {
-                    // Clone the sender
-                    let tx_to_send = self.tx_to_send.clone();
-                    let processors = self.processors.clone();
-                    async move {
-                        // Unwrap the message
-                        let data = message
-                            .expect("Message is an invalid format")
-                            .into_text()
-                            .expect("Could not turn into text");
-                        // Parse the message
-                        let parsed_data = parse_ws_packet(&data);
-                        // Print the message to the terminal
-                        println!("\x1b[91m🠳\x1b[0m {:#?}", data);
+    // /// Process the incoming websocket stream
+    // pub fn process_stream(&mut self) {
+    //     let read = self.read.take().unwrap();
+    //     let tx_to_send = self.tx_to_send.clone();
+    //     let processors = self.processors.clone();
+    //     // Create a new stream from the websocket
+    //     tokio::spawn(handle_messages(read, tx_to_send, processors));
 
-                        // For each parsed message
-                        for d in parsed_data {
-                            // If the message is a heartbeat, send a heartbeat back
-                            for processor in processors.iter() {
-                                {
-                                    tokio::task::spawn({
-                                        let d = d.clone();
-                                        let tx_to_send = tx_to_send.clone();
-                                        let processor = *processor;
-                                        async move {
-                                            processor(d.to_string(), tx_to_send.clone()).await;
-                                        }
-                                    });
-                                    // .await
-                                    // .expect("Task panicked")
-                                }
-                            }
-                        }
-                    }
-                },
-            )
-        };
-
-        pin_mut!(ws_to_stream);
-        ws_to_stream.await;
-    }
+    //     // thread::spawn(move || {
+    //     //     for a in 0..10 {
+    //     //         println!("{a}");
+    //     //     }
+    //     // });
+    // }
 
     pub fn add_processor(&mut self, processor: MessageProcessor) {
         self.processors.push(processor);
+    }
+}
+
+async fn handle_messages(
+    read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    tx_to_send: Sender<String>,
+    processors: Vec<fn(String, Sender<String>) -> Pin<Box<dyn Future<Output = ()> + Send>>>,
+) {
+    // For each message received on the stream
+    let reading = read.for_each(
+        move |message: Result<Message, tokio_tungstenite::tungstenite::Error>| {
+            // Clone the sender
+            let tx_to_send = tx_to_send.clone();
+            let processors = processors.clone();
+            async {
+                let msg = message
+                    .expect("Message is an invalid format")
+                    .into_text()
+                    .expect("Could not turn into text");
+                println!("\x1b[91m🠳\x1b[0m {}", msg);
+
+                process_messages(processors, msg, tx_to_send).await;
+            }
+        },
+    );
+
+    reading.await;
+}
+
+async fn process_messages(
+    processors: Vec<fn(String, Sender<String>) -> Pin<Box<dyn Future<Output = ()> + Send>>>,
+    data: String,
+    tx_to_send: Sender<String>,
+) {
+    let processors = processors.clone();
+    // Unwrap the message
+
+    // Parse the message
+    let parsed_data = parse_ws_packet(&data);
+    // Print the message to the terminal
+
+    // For each parsed message
+    for d in parsed_data {
+        // If the message is a heartbeat, send a heartbeat back
+        for processor in processors.iter() {
+            {
+                tokio::spawn({
+                    let d = d.clone();
+                    let tx_to_send = tx_to_send.clone();
+                    let processor = *processor;
+                    async move {
+                        processor(d.to_string(), tx_to_send.clone()).await;
+                    }
+                });
+                // .await
+                // .expect("Task panicked")
+            }
+        }
     }
 }
 
@@ -319,7 +347,7 @@ async fn send_message(
     loop {
         match rx.recv().await {
             Some(data) => {
-                println!("\x1b[92m🠱\x1b[0m {:#?}", &data);
+                println!("\x1b[92m🠱\x1b[0m {}", &data);
 
                 let message = Message::from(data);
 
@@ -366,7 +394,6 @@ pub async fn constructor() -> Session {
         rx_to_send: Some(rx_to_send),
         read: None,
         processors: vec![convert_to_message_processor!(process_heartbeat)],
-        chart_details: None,
     };
 
     current_session.start().await;
