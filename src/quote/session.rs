@@ -128,41 +128,61 @@ pub struct Session {
     pub tx_to_send: mpsc::Sender<String>,
     data: HashMap<String, (f64, f64)>,
     rx_to_send: Option<mpsc::Receiver<String>>,
-    pub read: Option<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
     processors: Vec<MessageProcessor>,
 }
 
 impl Session {
-    /// This initialises the TradingView session.
+    /// Creates a new `Session` instance for communicating with TradingView.
     ///
-    /// It creates a unique ID for the session and sets the types of
-    /// data received from the servers.
-    pub async fn start(&self) {
-        self.tx_to_send
+    /// This method generates a new session ID and sets up the necessary WebSocket packets to create a new session
+    /// and set the required fields for receiving price quotes. The resulting `Session` instance can be used to
+    /// send and receive messages over the WebSocket connection.
+    ///
+    /// # Examples
+    /// ```
+    /// use trade_vision::Session;
+    ///
+    /// let session = Session::new();
+    /// ```
+    ///
+    pub async fn new() -> Self {
+        let session_id = generate_session_id(None);
+        let (tx_to_send, rx_to_send) = mpsc::channel::<String>(20);
+
+        tx_to_send
             .send(
                 WSPacket {
                     m: "quote_create_session".to_string(),
-                    p: vec![(self.session_id).to_owned()],
+                    p: into_inner_string(session_id.to_owned()),
                 }
                 .format(),
             )
             .await
             .unwrap();
 
-        self.tx_to_send
+        tx_to_send
             .send(
                 WSPacket {
                     m: "quote_set_fields".to_string(),
                     p: [
-                        vec![(self.session_id).to_owned()],
+                        vec![(session_id).to_owned()],
                         get_quote_fields(FieldTypes::Price),
                     ]
-                    .concat(),
+                    .concat()
+                    .into_ws_vec_values(),
                 }
                 .format(),
             )
             .await
             .unwrap();
+
+        Session {
+            session_id,
+            tx_to_send,
+            data: HashMap::new(),
+            rx_to_send: Some(rx_to_send),
+            processors: vec![convert_to_message_processor!(process_heartbeat)],
+        }
     }
 
     pub async fn connect(&mut self) {
@@ -194,7 +214,7 @@ impl Session {
             .send(
                 WSPacket {
                     m: "set_auth_token".to_owned(),
-                    p: vec!["unauthorized_user_token".to_owned()],
+                    p: into_inner_string("unauthorized_user_token".to_owned()),
                 }
                 .format(),
             )
@@ -213,7 +233,7 @@ impl Session {
                 .send(
                     WSPacket {
                         m: "quote_add_symbols".to_string(),
-                        p: vec![self.session_id.to_owned(), to_add.to_owned()],
+                        p: vec![self.session_id.to_owned(), to_add.to_owned()].into_ws_vec_values(),
                     }
                     .format(),
                 )
@@ -317,11 +337,12 @@ async fn process_messages(
     // Unwrap the message
 
     // Parse the message
-    let parsed_data = parse_ws_packet(&data);
+    let parsed_data: Vec<&str> = parse_ws_packet(&data);
     // Print the message to the terminal
 
     // For each parsed message
     for d in parsed_data {
+        let d = d.to_string();
         // If the message is a heartbeat, send a heartbeat back
         for processor in processors.iter() {
             {
@@ -361,45 +382,6 @@ async fn send_message(
     }
 }
 
-/// This asynchronous function is used to construct a new TradingView session. It takes in a
-/// `mpsc::Sender<String>` as an argument which is used to send data from the session to the client.
-///
-/// It generates a unique ID for the session using the generate_session_id function, and uses it to
-/// create a new Session instance. This instance is returned after invoking the start method
-/// which initializes the session and sets the types of data received from the servers.
-///
-/// # Arguments
-///
-/// * tx_to_send - An instance of `mpsc::Sender<String>` that is used to send data from the session to the client.
-///
-/// # Examples
-///
-/// ```
-/// use trade_vision::session;
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let session = session::constructor().await;
-/// }
-/// ```
-pub async fn constructor() -> Session {
-    let session_id = generate_session_id(None);
-
-    let (tx_to_send, rx_to_send) = mpsc::channel::<String>(20);
-
-    let current_session = Session {
-        session_id,
-        tx_to_send,
-        data: HashMap::new(),
-        rx_to_send: Some(rx_to_send),
-        read: None,
-        processors: vec![convert_to_message_processor!(process_heartbeat)],
-    };
-
-    current_session.start().await;
-
-    current_session
-}
 ///
 /// There are two different types of fields that can be retrieved
 /// either all the fields available or just the fields

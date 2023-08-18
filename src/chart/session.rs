@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 
-use crate::protocol::WSPacket;
+use crate::protocol::{into_inner_string, WSPacket};
 use crate::session::Session;
 use crate::utils::generate_session_id;
 
@@ -37,18 +37,19 @@ impl ChartTypes {
 }
 
 impl ChartSession {
-    pub fn new(session: Session) -> Self {
+    pub async fn new(session: Session) -> Self {
         let chart_session_id = generate_session_id(Some("cs"));
         // Not using send(), as this the initial function, which I don't want to be async as it has to be certain that the chart has been initialised
         session
             .tx_to_send
-            .blocking_send(
+            .send(
                 WSPacket {
-                    m: "chart_delete_session".to_string(),
-                    p: vec![chart_session_id.clone()],
+                    m: "chart_create_session".to_string(),
+                    p: into_inner_string(chart_session_id.clone()),
                 }
                 .format(),
             )
+            .await
             .unwrap();
 
         Self {
@@ -66,7 +67,7 @@ impl ChartSession {
             .send(
                 WSPacket {
                     m: "chart_delete_session".to_string(),
-                    p: vec![self.chart_session_id.clone()],
+                    p: into_inner_string(self.chart_session_id.clone()),
                 }
                 .format(),
             )
@@ -78,6 +79,8 @@ impl ChartSession {
     }
 }
 
-pub async fn process_chart_data(_message: String, _tx_to_send: mpsc::Sender<String>) {
-    todo!();
+pub async fn process_chart_data(message: String, _tx_to_send: mpsc::Sender<String>) {
+    if message.contains("~h~") {
+        todo!();
+    }
 }

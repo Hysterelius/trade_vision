@@ -1,10 +1,10 @@
-use trade_vision::session::constructor;
+use trade_vision::session::Session;
 
 extern crate trade_vision;
 
 #[tokio::main]
 async fn main() {
-    let mut session = constructor().await;
+    let mut session = Session::new().await;
 
     session.connect().await;
 

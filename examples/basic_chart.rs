@@ -1,11 +1,11 @@
 use tokio::signal;
-use trade_vision::session::constructor;
+use trade_vision::{chart::session::ChartSession, session::Session};
 
 extern crate trade_vision;
 
 #[tokio::main]
 async fn main() {
-    let mut session = constructor().await;
+    let mut session = Session::new().await;
 
     session.connect().await;
     println!("yes!");
@@ -13,14 +13,7 @@ async fn main() {
     // Adds the ETH/USDT symbol to the session
     session.add_symbol("BINANCE:ETHUSDT").await;
 
-    // let mut chart = ChartSession::new(session);
-    // println!("My code");
-    // let mut session = chart.close().await;
-
-    // session.process_stream();
+    let _chart = ChartSession::new(session).await;
 
     signal::ctrl_c().await.unwrap();
-
-    // Wait for the stream task to complete
-    // stream_task.await;
 }
