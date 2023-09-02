@@ -1,5 +1,5 @@
 //! Houses utility functions that are used throughout the program to certain functions
-//! which allow for communication with the TradingView server
+//! which allow for communication with the `TradingView` server
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -39,8 +39,7 @@ fn test_generate_session_id() {
     let session_id = generate_session_id(None);
     assert!(
         session_id.starts_with("qs_"),
-        "Expected prefix 'qs_', got {}",
-        session_id
+        "Expected prefix 'qs_', got {session_id}"
     );
     assert_eq!(
         session_id.len(),
@@ -52,8 +51,7 @@ fn test_generate_session_id() {
     let session_id = generate_session_id(Some("foo"));
     assert!(
         session_id.starts_with("foo_"),
-        "Expected prefix 'foo_', got {}",
-        session_id
+        "Expected prefix 'foo_', got {session_id}"
     );
     assert_eq!(
         session_id.len(),

@@ -1,4 +1,4 @@
-use trade_vision::session::Session;
+use trade_vision::quote::session::Session;
 
 extern crate trade_vision;
 

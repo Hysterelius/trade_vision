@@ -1,11 +1,15 @@
-//! Manages the current TradingView session
+//! Manages the current `TradingView` session
 //! allows for the receiving of data and the defining of protocols
 use std::collections::hash_map;
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Arc;
 
-use crate::protocol::*;
-use crate::utils::*;
+use crate::protocol::parse_each_packet;
+use crate::protocol::{
+    format_ws_ping, into_inner_string, parse_ws_packet, IntoWSVecValues, Packets, WSPacket,
+};
+use crate::utils::generate_session_id;
 use futures_util::stream::SplitStream;
 use futures_util::Future;
 
@@ -26,7 +30,7 @@ use tokio::net::TcpStream;
 const CONNECTION: &str = "wss://data.tradingview.com/socket.io/websocket";
 
 /// The two possible field types that can be used for data retrieval:
-/// - All = all available TradingView fields/datapoints
+/// - All = all available `TradingView` fields/datapoints
 /// - Price = only fields/datapoints related to price
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
@@ -39,7 +43,7 @@ enum FieldTypes {
 mod message_processors {
     macro_rules! convert_to_message_processor {
         ($f:expr) => {
-            |message, tx_to_send| Box::pin($f(message, tx_to_send))
+            |message: &Packets, tx_to_send| Box::pin($f(message, tx_to_send))
         };
     }
 }
@@ -50,7 +54,7 @@ mod message_processors {
 ///
 /// * `symbol`: The specified symbol that data is being collected for, in format `MARKET:SYMBOL` e.g., `NYSE:AAPL`
 /// * `price`: A tokio mpsc sender stream, used for sending messages to the server
-/// * `technical_analysis`: The current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
+/// * `technical_analysis`: The current data from the datastream about prices and technical analysis, set by either `set_data_price` or `set_data_ta`
 #[derive(Debug, Clone)]
 pub struct SymbolData {
     pub symbol: String,
@@ -58,7 +62,7 @@ pub struct SymbolData {
     pub technical_analysis: f64,
 }
 
-/// All the possible fields for a TradingView session, impacts what is received
+/// All the possible fields for a `TradingView` session, impacts what is received
 const FIELDS: [&str; 48] = [
     "base-currency-logoid",
     "ch",
@@ -110,19 +114,19 @@ const FIELDS: [&str; 48] = [
     "provider_id",
 ];
 
-/// A session which encapsulates the current state of the TradingView session.
+/// A session which encapsulates the current state of the `TradingView` session.
 ///
 /// This session holds the id, the sending mpsc socket and the data that is incoming.
 ///
 /// # Fields
 ///
-/// * `session_id`: The current id of the session, used to authenticate with TradingView
+/// * `session_id`: The current id of the session, used to authenticate with `TradingView`
 /// * `tx_to_send`: A tokio mpsc sender stream, used for sending messages to the server
-/// * `data`: A hashmap of the current data from the datastream about prices and technical analysis, set by either 'set_data_price' or 'set_data_ta'
+/// * `data`: A hashmap of the current data from the datastream about prices and technical analysis, set by either '`set_data_price`' or '`set_data_ta`'
 /// * `rx_to_send`: An optional tokio mpsc receiver stream, used for receiving messages from the server
-/// * `read`: An optional tokio WebSocket stream, used for reading messages from the server
+/// * `read`: An optional tokio `WebSocket` stream, used for reading messages from the server
 /// * `processors`: A vector of message processors, used for processing incoming messages from the server
-/// * `chart_details`: An optional `ChartSession` struct containing the current state of the TradingView chart session
+/// * `chart_details`: An optional `ChartSession` struct containing the current state of the `TradingView` chart session
 pub struct Session {
     pub session_id: String,
     pub tx_to_send: mpsc::Sender<String>,
@@ -132,15 +136,15 @@ pub struct Session {
 }
 
 impl Session {
-    /// Creates a new `Session` instance for communicating with TradingView.
+    /// Creates a new `Session` instance for communicating with `TradingView`.
     ///
-    /// This method generates a new session ID and sets up the necessary WebSocket packets to create a new session
+    /// This method generates a new session ID and sets up the necessary `WebSocket` packets to create a new session
     /// and set the required fields for receiving price quotes. The resulting `Session` instance can be used to
-    /// send and receive messages over the WebSocket connection.
+    /// send and receive messages over the `WebSocket` connection.
     ///
     /// # Examples
     /// ```
-    /// use trade_vision::Session;
+    /// use trade_vision::quote::session::Session;
     ///
     /// let session = Session::new();
     /// ```
@@ -153,7 +157,7 @@ impl Session {
             .send(
                 WSPacket {
                     m: "quote_create_session".to_string(),
-                    p: into_inner_string(session_id.to_owned()),
+                    p: into_inner_string(session_id.clone()),
                 }
                 .format(),
             )
@@ -165,8 +169,8 @@ impl Session {
                 WSPacket {
                     m: "quote_set_fields".to_string(),
                     p: [
-                        vec![(session_id).to_owned()],
-                        get_quote_fields(FieldTypes::Price),
+                        vec![(session_id).clone()],
+                        get_quote_fields(&FieldTypes::Price),
                     ]
                     .concat()
                     .into_ws_vec_values(),
@@ -176,7 +180,7 @@ impl Session {
             .await
             .unwrap();
 
-        Session {
+        Self {
             session_id,
             tx_to_send,
             data: HashMap::new(),
@@ -233,7 +237,7 @@ impl Session {
                 .send(
                     WSPacket {
                         m: "quote_add_symbols".to_string(),
-                        p: vec![self.session_id.to_owned(), to_add.to_owned()].into_ws_vec_values(),
+                        p: vec![self.session_id.clone(), to_add.to_owned()].into_ws_vec_values(),
                     }
                     .format(),
                 )
@@ -246,11 +250,11 @@ impl Session {
     ///
     /// If the symbol exists in the data map, its internal data is modified to include the new price data.
     /// If the symbol does not exist in the data map, a new entry with the symbol and the new price data is added.
+    #[must_use]
     pub fn get_data(&self, symbol: &str) -> (f64, f64) {
-        match self.data.get(symbol) {
-            Some(internal_data) => internal_data.to_owned().to_owned(),
-            None => (0.0, 0.0),
-        }
+        self.data.get(symbol).map_or((0.0, 0.0), |internal_data| {
+            internal_data.to_owned().to_owned()
+        })
     }
 
     /// Sets the technical analysis (TA) data for a given symbol.
@@ -278,6 +282,7 @@ impl Session {
     /// Returns a list of all symbols for which data has been retrieved.
     ///
     /// The returned list contains only the symbol names, without any associated data.
+    #[must_use]
     pub fn keys(&self) -> hash_map::IntoKeys<std::string::String, (f64, f64)> {
         self.data.clone().into_keys()
     }
@@ -305,7 +310,7 @@ impl Session {
 async fn handle_messages(
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     tx_to_send: Sender<String>,
-    processors: Vec<fn(String, Sender<String>) -> Pin<Box<dyn Future<Output = ()> + Send>>>,
+    processors: Processors,
 ) {
     // For each message received on the stream
     let reading = read.for_each(
@@ -318,9 +323,9 @@ async fn handle_messages(
                     .expect("Message is an invalid format")
                     .into_text()
                     .expect("Could not turn into text");
-                println!("\x1b[91m🠳\x1b[0m {}", msg);
+                println!("\x1b[91m🠳\x1b[0m {msg}");
 
-                process_messages(processors, msg, tx_to_send).await;
+                process_messages(processors, msg, tx_to_send);
             }
         },
     );
@@ -328,11 +333,17 @@ async fn handle_messages(
     reading.await;
 }
 
-async fn process_messages(
-    processors: Vec<fn(String, Sender<String>) -> Pin<Box<dyn Future<Output = ()> + Send>>>,
-    data: String,
-    tx_to_send: Sender<String>,
-) {
+// `7MM"""Mq.
+//   MM   `MM.
+//   MM   ,M9 `7Mb,od8 ,pW"Wq.   ,p6"bo   .gP"Ya  ,pP"Ybd ,pP"Ybd  ,pW"Wq.`7Mb,od8 ,pP"Ybd
+//   MMmmdM9    MM' "'6W'   `Wb 6M'  OO  ,M'   Yb 8I   `" 8I   `" 6W'   `Wb MM' "' 8I   `"
+//   MM         MM    8M     M8 8M       8M"""""" `YMMMa. `YMMMa. 8M     M8 MM     `YMMMa.
+//   MM         MM    YA.   ,A9 YM.    , YM.    , L.   I8 L.   I8 YA.   ,A9 MM     L.   I8
+// .JMML.     .JMML.   `Ybmd9'   YMbmd'   `Mbmmd' M9mmmP' M9mmmP'  `Ybmd9'.JMML.   M9mmmP'
+
+type Processors = Vec<MessageProcessor>;
+
+fn process_messages(processors: Processors, data: String, tx_to_send: Sender<String>) {
     let processors = processors.clone();
     // Unwrap the message
 
@@ -342,22 +353,43 @@ async fn process_messages(
 
     // For each parsed message
     for d in parsed_data {
-        let d = d.to_string();
+        let d = Arc::new(parse_each_packet(d));
         // If the message is a heartbeat, send a heartbeat back
-        for processor in processors.iter() {
+        for processor in &processors {
             {
                 tokio::spawn({
                     let d = d.clone();
                     let tx_to_send = tx_to_send.clone();
                     let processor = *processor;
                     async move {
-                        processor(d.to_string(), tx_to_send.clone()).await;
+                        processor(d.as_ref(), tx_to_send.clone()).await;
                     }
                 });
                 // .await
                 // .expect("Task panicked")
             }
         }
+    }
+}
+
+// Thanks to help of rust forum: https://users.rust-lang.org/t/general-async-function-pointer/97997
+/// Type of function that can process messages, cannot be async
+pub type MessageProcessor = fn(&Packets, mpsc::Sender<String>) -> BoxFuture<()>;
+
+// pub fn convert_to_message_processor<Fut: Future<Output = ()> + Send + 'static>(
+//     f: impl Fn(String, mpsc::Sender<String>) -> Fut + 'static,
+// ) -> MessageProcessor {
+//     Box::new(move |message, tx_to_send| Box::pin(f(message, tx_to_send)))
+// }
+
+/// This is a type of function that is able to process a message from the `TradingView` websocket.
+/// The function cannot be async because it is used in a for loop in the `process_stream` method and rust doesn't easily support async
+/// function types
+// TODO: change to support async https://stackoverflow.com/questions/66769143/rust-passing-async-function-pointers https://users.rust-lang.org/t/how-to-store-async-function-pointer/38343/4
+pub async fn process_heartbeat(message: &Packets, tx_to_send: mpsc::Sender<String>) {
+    if let Packets::Ping(num) = message {
+        let ping = format_ws_ping(num);
+        tx_to_send.send(ping).await.unwrap();
     }
 }
 
@@ -386,9 +418,9 @@ async fn send_message(
 /// There are two different types of fields that can be retrieved
 /// either all the fields available or just the fields
 /// that relate to price.
-fn get_quote_fields(field: FieldTypes) -> Vec<String> {
+fn get_quote_fields(field: &FieldTypes) -> Vec<String> {
     match field {
-        FieldTypes::All => FIELDS.map(|x| x.to_owned()).to_vec(),
+        FieldTypes::All => FIELDS.map(std::borrow::ToOwned::to_owned).to_vec(),
         FieldTypes::Price => vec![
             "lp".to_owned(),
             "high_price".to_owned(),
@@ -399,34 +431,13 @@ fn get_quote_fields(field: FieldTypes) -> Vec<String> {
     }
 }
 
-// Thanks to help of rust forum: https://users.rust-lang.org/t/general-async-function-pointer/97997
-/// Type of function that can process messages, cannot be async
-pub type MessageProcessor = fn(String, mpsc::Sender<String>) -> BoxFuture<'static, ()>;
-
-// pub fn convert_to_message_processor<Fut: Future<Output = ()> + Send + 'static>(
-//     f: impl Fn(String, mpsc::Sender<String>) -> Fut + 'static,
-// ) -> MessageProcessor {
-//     Box::new(move |message, tx_to_send| Box::pin(f(message, tx_to_send)))
-// }
-
-/// This is a type of function that is able to process a message from the TradingView websocket.
-/// The function cannot be async because it is used in a for loop in the `process_stream` method and rust doesn't easily support async
-/// function types
-// TODO: change to support async https://stackoverflow.com/questions/66769143/rust-passing-async-function-pointers https://users.rust-lang.org/t/how-to-store-async-function-pointer/38343/4
-pub async fn process_heartbeat(message: String, tx_to_send: mpsc::Sender<String>) {
-    if message.contains("~h~") {
-        let ping = format_ws_ping(message.replace("~h~", "").parse().unwrap());
-        tx_to_send.send(ping).await.unwrap();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_get_quote_fields() {
-        let quote_price = get_quote_fields(FieldTypes::Price);
+        let quote_price = get_quote_fields(&FieldTypes::Price);
         assert_eq!(
             quote_price,
             vec![
@@ -439,7 +450,7 @@ mod tests {
             "The quote fields should include only 5 fields"
         );
 
-        let quote_all = get_quote_fields(FieldTypes::All);
+        let quote_all = get_quote_fields(&FieldTypes::All);
         assert_eq!(
             quote_all,
             FIELDS.to_vec(),

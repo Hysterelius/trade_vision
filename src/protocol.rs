@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-/// A struct for representing a WebSocket packet.
+/// A struct for representing a `WebSocket` packet.
 ///
 /// # Fields
 ///
@@ -81,53 +81,18 @@ struct InnerPriceDataV {
 }
 
 pub fn into_inner_string<S: Into<String>>(val: S) -> Vec<WSVecValues> {
-    let mut vec = Vec::new();
-    vec.push(WSVecValues::String(val.into()));
-    vec
+    vec![WSVecValues::String(val.into())]
 }
 
 impl WSPacket {
+    #[must_use]
     pub fn format(&self) -> String {
         let json = serde_json::to_string(self).unwrap();
         format!("~m~{}~m~{}", json.len(), json)
     }
 }
 
-/// Formats a packet for sending to the server as a request in a valid TradingView schema
-///
-/// # Arguments
-///
-/// * `packet` - A [`WSPacket`] that is then formatted into compatible string
-///
-/// # Examples
-///
-/// ```
-/// use trade_vision::protocol::{format_ws_packet, WSPacket};
-/// let packet = WSPacket {
-///     m: "foo".to_string(),
-///     p: vec!["bar".to_string()],
-/// };
-///
-/// let formatted_packet = format_ws_packet(packet);
-///
-/// assert_eq!(
-///     formatted_packet, "~m~23~m~{\"m\":\"foo\",\"p\":[\"bar\"]}",
-/// );
-///
-/// ```
-/// # Notes
-///
-/// The strings are formatted into a json string for sending to the server.
-///
-/// The m value is the length of the resulting json string **it does not include the `\` to lint the `"`**
-///
-#[deprecated]
-pub fn format_ws_packet(packet: WSPacket) -> String {
-    let json = serde_json::to_string(&packet).unwrap();
-    format!("~m~{}~m~{}", json.len(), json)
-}
-
-/// Formats a ping to keep the TradingView connection alive.
+/// Formats a ping to keep the `TradingView` connection alive.
 ///
 /// # Arguments
 ///
@@ -147,12 +112,13 @@ pub fn format_ws_packet(packet: WSPacket) -> String {
 /// ```
 ///
 ///
-pub fn format_ws_ping(num: u32) -> String {
+#[must_use]
+pub fn format_ws_ping(num: &u32) -> String {
     // Adds three to the length of the number to account for the `~h~` characters
     format!("~m~{}~m~~h~{}", (num.to_string().len() + 3), num)
 }
 
-/// Takes a incoming TradingView packet and reformats it for interpretation.
+/// Takes a incoming `TradingView` packet and reformats it for interpretation.
 ///
 /// # Arguments
 ///
@@ -172,12 +138,13 @@ pub fn format_ws_ping(num: u32) -> String {
 /// let parsed_packet2 = parse_ws_packet(r#"~m~87~m~{"m":"qsd","p":["qs_0J8daiOQEZzH",{"n":"BINANCE:ETHUSDT","s":"ok","v":{"lp":1849.09}}]}"#);
 /// assert_eq!(
 ///    parsed_packet2,
-///    vec![""]
+///    vec!["{\"m\":\"qsd\",\"p\":[\"qs_0J8daiOQEZzH\",{\"n\":\"BINANCE:ETHUSDT\",\"s\":\"ok\",\"v\":{\"lp\":1849.09}}]}"]
 /// );
 ///
 /// ```
 ///
 ///
+#[must_use]
 pub fn parse_ws_packet(packet: &str) -> Vec<&str> {
     // let cleaned_packet = packet.replace("~h~", "");
     // let splitter_regex = Regex::new(r"~m~[0-9]{1,}~m~").unwrap();
@@ -199,7 +166,7 @@ fn split_on_msg_length(packet: &str) -> Vec<&str> {
         .collect()
 }
 
-fn parse_each_packet(packet: &str) -> Packets {
+#[must_use] pub fn parse_each_packet(packet: &str) -> Packets {
     if packet.contains("~h~") {
         // This is a ping packet
         let num: u32 = packet
@@ -222,8 +189,8 @@ fn parse_each_packet(packet: &str) -> Packets {
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum Packets {
+#[derive(Debug, PartialEq, Clone)]
+pub enum Packets {
     Ping(u32),
     WSPacket(WSPacket),
     Other(String),
@@ -270,19 +237,19 @@ mod tests {
 
     #[test]
     fn test_format_ws_ping() {
-        let formatted_ping_length_one = format_ws_ping(1);
+        let formatted_ping_length_one = format_ws_ping(&1);
         assert_eq!(
             formatted_ping_length_one, "~m~4~m~~h~1",
             "The resulting ping should be 1, with length of 4 accounting for '~h~' and '1'"
         );
 
-        let formatted_ping_length_two = format_ws_ping(22);
+        let formatted_ping_length_two = format_ws_ping(&22);
         assert_eq!(
             formatted_ping_length_two, "~m~5~m~~h~22",
             "The resulting ping should be 22, with length of 5 accounting for '~h~' and '22'"
         );
 
-        let formatted_ping_length_three = format_ws_ping(333);
+        let formatted_ping_length_three = format_ws_ping(&333);
         assert_eq!(
             formatted_ping_length_three, "~m~6~m~~h~333",
             "The resulting ping should be 333, with length of 6 accounting for '~h~' and '333'"
@@ -315,7 +282,7 @@ mod tests {
             multi_packet_parse,
             vec!["{\"m\":\"qsd\",\"p\":[\"xs_abcdABCD1234\",{\"n\":\"BITMEX:XBT\",\"s\":\"ok\",\"v\":{\"volume\":1e+100,\"update_mode\":\"streaming\",\"typespecs\":[],\"type\":\"crypto\",\"short_name\":\"XBT\",\"pro_name\":\"BITMEX:XBT\",\"pricescale\":100,\"original_name\":\"BITMEX:XBT\",\"minmove2\":0,\"minmov\":1,\"lp_time\":1000000000,\"lp\":10000.11,\"listed_exchange\":\"BITMEX\",\"is_tradable\":true,\"fractional\":false,\"format\":\"price\",\"exchange\":\"BITMEX\",\"description\":\"Bitcoin / US Dollar Index\",\"current_session\":\"market\",\"currency_id\":\"USD\",\"currency_code\":\"USD\",\"currency-logoid\":\"country/US\",\"chp\":0.79,\"ch\":133.27,\"base_currency_id\":\"XTVCBTC\",\"base-currency-logoid\":\"crypto/XTVCBTC\"}}]}", "{\"m\":\"quote_completed\",\"p\":[\"xs_abcdABCD1234\",\"BITMEX:XBT\"]}", "{\"m\":\"quote_completed\",\"p\":[\"xs_abcdABCD1234\",\"BITMEX:XBT\"]}"],
             "The resulting packet should remove the length value and return 2 strings within a Vec"
-        )
+        );
     }
 
     #[test]
@@ -344,7 +311,7 @@ mod tests {
                             original_name: Some("BITMEX:XBT".to_string()),
                             minmove2: Some(0),
                             minmov: Some(1),
-                            lp_time: Some(1000000000),
+                            lp_time: Some(1_000_000_000),
                             lp: Some(10000.11),
                             listed_exchange: Some("BITMEX".to_string()),
                             is_tradable: Some(true),

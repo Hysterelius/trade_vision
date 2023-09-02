@@ -1,7 +1,5 @@
-use tokio::sync::mpsc;
-
 use crate::protocol::{into_inner_string, WSPacket};
-use crate::session::Session;
+use crate::quote::session::Session;
 use crate::utils::generate_session_id;
 
 #[allow(unused)]
@@ -15,7 +13,7 @@ enum ChartTypes {
 }
 
 #[allow(unused)]
-pub struct ChartSession {
+pub struct Chart {
     session: Option<Session>,
     chart_session_id: String,
     replay_session_id: String,
@@ -24,19 +22,19 @@ pub struct ChartSession {
 
 #[allow(unused)]
 impl ChartTypes {
-    fn to_string(&self) -> &str {
+    const fn to_string(&self) -> &str {
         match self {
-            ChartTypes::HeikinAshi => "BarSetHeikenAshi@tv-basicstudies-60!",
-            ChartTypes::Renko => "BarSetRenko@tv-prostudies-40!",
-            ChartTypes::LineBreak => "BarSetPriceBreak@tv-prostudies-34!",
-            ChartTypes::Kagi => "BarSetKagi@tv-prostudies-34!",
-            ChartTypes::PointAndFigure => "BarSetPnF@tv-prostudies-34!",
-            ChartTypes::Range => "BarSetRange@tv-basicstudies-72!",
+            Self::HeikinAshi => "BarSetHeikenAshi@tv-basicstudies-60!",
+            Self::Renko => "BarSetRenko@tv-prostudies-40!",
+            Self::LineBreak => "BarSetPriceBreak@tv-prostudies-34!",
+            Self::Kagi => "BarSetKagi@tv-prostudies-34!",
+            Self::PointAndFigure => "BarSetPnF@tv-prostudies-34!",
+            Self::Range => "BarSetRange@tv-basicstudies-72!",
         }
     }
 }
 
-impl ChartSession {
+impl Chart {
     pub async fn new(session: Session) -> Self {
         let chart_session_id = generate_session_id(Some("cs"));
         // Not using send(), as this the initial function, which I don't want to be async as it has to be certain that the chart has been initialised
@@ -72,15 +70,14 @@ impl ChartSession {
                 .format(),
             )
             .await;
-        match self.session.take() {
-            Some(s) => s,
-            None => panic!("No session to close"),
-        }
+        self.session
+            .take()
+            .map_or_else(|| panic!("No session to close"), |s| s)
     }
 }
 
-pub async fn process_chart_data(message: String, _tx_to_send: mpsc::Sender<String>) {
-    if message.contains("~h~") {
-        todo!();
-    }
-}
+// pub fn process_chart_data(message: String, _tx_to_send: mpsc::Sender<String>) {
+//     if message.contains("~h~") {
+//         todo!();
+//     }
+// }

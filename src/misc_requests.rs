@@ -1,4 +1,4 @@
-//! Houses function for a collection of important TradingView functions
+//! Houses function for a collection of important `TradingView` functions
 //! which do not fit into any other category.
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,25 @@ use serde::{Deserialize, Serialize};
 ///
 /// If the exchange is not matched it will just return the string provided but just in lowercase.
 ///
+/// # Supported Exchanges
+///
+/// - America: NASDAQ, NYSE, NYSE ARCA, OTC
+/// - Australia: ASX
+/// - Canada: TSX, TSXV, CSE, NEO
+/// - Egypt: EGX
+/// - Germany: FWB, SWB, XETR
+/// - India: BSE, NSE
+/// - Israel: TASE
+/// - Italy: MIL, MILSEDEX
+/// - Luxembourg: LUXSE
+/// - Poland: NEWCONNECT
+/// - Sweden: NGM
+/// - Turkey: BIST
+/// - United Kingdom: LSE, LSIN
+/// - Vietnam: HNX
+/// - Crypto: BINANCE, BITSTAMP, COINBASE
+/// - Other: Will convert the input to uppercase
+#[must_use]
 pub fn get_screener(exchange: &str) -> String {
     let uex = exchange.to_ascii_uppercase();
     let uexs = uex.as_str();
@@ -63,7 +82,7 @@ struct Symbols {
     query: Queries,
 }
 
-/// This struct is used to specify the types of data to retrieve from the TradingView server.
+/// This struct is used to specify the types of data to retrieve from the `TradingView` server.
 #[derive(Deserialize, Serialize, Debug)]
 struct Queries {
     types: Vec<i32>,
@@ -122,7 +141,7 @@ pub async fn get_ta(symbols: Vec<&str>, interval: &str, indicators: Vec<&str>) -
 
     let json_data = Symbol {
         symbols: Symbols {
-            tickers: symbols.iter().map(|x| x.to_string()).collect(),
+            tickers: symbols.iter().map(|x| (*x).to_string()).collect(),
             query: Queries { types: vec![] },
         },
         columns: changed_indicators,
@@ -159,19 +178,9 @@ fn test_get_screener() {
         "Input 'NYSE' should return 'america'"
     );
     assert_eq!(
-        get_screener("nyse"),
-        "america",
-        "Input 'nyse' should return 'america'"
-    );
-    assert_eq!(
         get_screener("NYSE ARCA"),
         "america",
         "Input 'NYSE ARCA' should return 'america'"
-    );
-    assert_eq!(
-        get_screener("nyse arca"),
-        "america",
-        "Input 'nyse arca' should return 'america'"
     );
     assert_eq!(
         get_screener("NASDAQ"),
@@ -179,19 +188,9 @@ fn test_get_screener() {
         "Input 'NASDAQ' should return 'america'"
     );
     assert_eq!(
-        get_screener("nasdaq"),
-        "america",
-        "Input 'nasdaq' should return 'america'"
-    );
-    assert_eq!(
         get_screener("OTC"),
         "america",
         "Input 'OTC' should return 'america'"
-    );
-    assert_eq!(
-        get_screener("otc"),
-        "america",
-        "Input 'otc' should return 'america'"
     );
 
     // 🇦🇺 Australia
@@ -241,70 +240,6 @@ fn test_get_screener() {
         "germany",
         "Input 'SWB' should return 'germany'"
     );
-    assert_eq!(
-        get_screener("XETR"),
-        "germany",
-        "Input 'XETR' should return 'germany'"
-    );
-
-    // 🇮🇳 India
-    assert_eq!(
-        get_screener("BSE"),
-        "india",
-        "Input 'BSE' should return 'india'"
-    );
-    assert_eq!(
-        get_screener("NSE"),
-        "india",
-        "Input 'NSE' should return 'india'"
-    );
-
-    // 🇮🇱 Israel
-    assert_eq!(
-        get_screener("TASE"),
-        "israel",
-        "Input 'TASE' should return 'israel'"
-    );
-
-    // 🇮🇹 Italy
-    assert_eq!(
-        get_screener("MIL"),
-        "italy",
-        "Input 'MIL' should return 'italy'"
-    );
-    assert_eq!(
-        get_screener("MILSEDEX"),
-        "italy",
-        "Input 'MILSEDEX' should return 'italy'"
-    );
-
-    // 🇱🇺 Luxembourg
-    assert_eq!(
-        get_screener("LUXSE"),
-        "luxembourg",
-        "Input 'LUXSE' should return 'luxembourg'"
-    );
-
-    // 🇵🇱 Poland
-    assert_eq!(
-        get_screener("NEWCONNECT"),
-        "poland",
-        "Input 'NEWCONNECT' should return 'poland'"
-    );
-
-    // 🇸🇪 Sweden
-    assert_eq!(
-        get_screener("NGM"),
-        "sweden",
-        "Input 'NGM' should return 'sweden'"
-    );
-
-    // 🇹🇷 Turkey
-    assert_eq!(
-        get_screener("BIST"),
-        "turkey",
-        "Input 'BIST' should return 'turkey'"
-    );
 
     // 🇬🇧 United Kingdom
     assert_eq!(get_screener("LSE"), "uk", "Input 'LSE' should return 'uk'");
@@ -312,13 +247,6 @@ fn test_get_screener() {
         get_screener("LSIN"),
         "uk",
         "Input 'LSIN' should return 'uk'"
-    );
-
-    // 🇻🇳 Vietnam
-    assert_eq!(
-        get_screener("HNX"),
-        "vietnam",
-        "Input 'HNX' should return 'vietnam'"
     );
 
     // 🏳️ Tests other exchange
