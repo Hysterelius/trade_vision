@@ -17,28 +17,48 @@ use serde_with::skip_serializing_none;
 ///
 /// With `X` being the length of json string `Y`
 ///
+///
+/// - WSPacket
+///   |- m: &str
+///   |- p:
+///         |- identifier: &str
+///         |- data: Option<WSVecValues>
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct WSPacket {
-    pub m: String,
-    pub p: Vec<WSVecValues>,
+pub struct WSPacket<'a> {
+    pub m: &'a str,
+    pub p: ArrayData<'a>,
 }
 
 // TODO: add better names for below structs & enums
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
-pub enum WSVecValues {
-    String(String),
+pub enum WSVecValues<'a> {
+    String(&'a str),
     InnerPriceData(InnerPriceData),
 }
 
-pub trait IntoWSVecValues {
-    fn into_ws_vec_values(self) -> Vec<WSVecValues>;
+pub trait IntoWSVecValues<'a> {
+    fn into_ws_vec_values(self) -> ArrayData<'a>;
 }
 
-impl IntoWSVecValues for Vec<std::string::String> {
-    fn into_ws_vec_values(self) -> Vec<WSVecValues> {
-        vec![WSVecValues::String(self[0].clone())]
+impl<'a> IntoWSVecValues<'a> for Vec<&'a str> {
+    fn into_ws_vec_values(self) -> ArrayData<'a> {
+        ArrayData {
+            identifier: &self[0],
+            data: Some(WSVecValues::String(self[1])),
+        }
+    }
+}
+
+impl<'a> IntoWSVecValues<'a> for Vec<String> {
+    fn into_ws_vec_values(self) -> ArrayData<'a> {
+        let first_string = self.get(0).map(|s| s.as_str()).unwrap_or("");
+        let second_string = self.get(1).map(|s| s.as_str()).unwrap_or("");
+        ArrayData {
+            identifier: first_string,
+            data: Some(WSVecValues::String(second_string)),
+        }
     }
 }
 
@@ -80,11 +100,28 @@ struct InnerPriceDataV {
     base_currency_logoid: Option<String>,
 }
 
-pub fn into_inner_string<S: Into<String>>(val: S) -> Vec<WSVecValues> {
-    vec![WSVecValues::String(val.into())]
+#[derive(Debug, PartialEq, Clone)]
+pub enum Packets<'a> {
+    Ping(u32),
+    WSPacket(WSPacket<'a>),
+    Other(String),
 }
 
-impl WSPacket {
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+struct ArrayData<'a> {
+    identifier: &'a str,
+    data: Option<WSVecValues<'a>>,
+}
+
+pub fn into_inner_identifier<'a>(val: &'a str) -> ArrayData<'a> {
+    ArrayData {
+        identifier: val.into(),
+        data: None,
+    }
+}
+
+impl<'a> WSPacket<'a> {
     #[must_use]
     pub fn format(&self) -> String {
         let json = serde_json::to_string(self).unwrap();
@@ -102,7 +139,7 @@ impl WSPacket {
 ///
 /// ```
 /// use trade_vision::protocol::format_ws_ping;
-/// let formatted_ping = format_ws_ping(1);
+/// let formatted_ping = format_ws_ping(&(1 as u32));
 ///
 /// assert_eq!(
 ///     formatted_ping,
@@ -166,7 +203,36 @@ fn split_on_msg_length(packet: &str) -> Vec<&str> {
         .collect()
 }
 
-#[must_use] pub fn parse_each_packet(packet: &str) -> Packets {
+#[must_use]
+/// Parses each packet and returns a `Packets` enum variant based on the packet type.
+///
+/// # Arguments
+///
+/// * `packet` - The incoming packet in a form of a string
+///
+/// # Panics
+///
+/// This function will panic if the incoming ping packet cannot be converted to a number.
+/// Or if the resulting 'm' packet cannot be turned into a `WSPacket` using serde.
+///
+/// # Examples
+///
+/// ```
+/// use trade_vision::protocol::{parse_each_packet, Packets};
+///
+/// let parsed_ping_packet = parse_each_packet("~m~4~m~~h~1");
+/// assert_eq!(parsed_ping_packet, Packets::Ping(&(1 as u32))));
+///
+/// let parsed_ws_packet = parse_each_packet(r#"~m~87~m~{"m":"qsd","p":["qs_0J8daiOQEZzH",{"n":"BINANCE:ETHUSDT","s":"ok","v":{"lp":1849.09}}]}"#);
+/// assert_eq!(
+///     parsed_ws_packet,
+///     Packets::WSPacket(serde_json::from_str(r#"{"m":"qsd","p":["qs_0J8daiOQEZzH",{"n":"BINANCE:ETHUSDT","s":"ok","v":{"lp":1849.09}}]}"#).unwrap())
+/// );
+///
+/// let parsed_other_packet = parse_each_packet("This is a plain string packet");
+/// assert_eq!(parsed_other_packet, Packets::Other("This is a plain string packet".to_string()));
+/// ```
+pub fn parse_each_packet(packet: &str) -> Packets {
     if packet.contains("~h~") {
         // This is a ping packet
         let num: u32 = packet
@@ -182,18 +248,11 @@ fn split_on_msg_length(packet: &str) -> Vec<&str> {
         //     Ok(ws_packet) => Packets::WSPacket(ws_packet),
         //     Err(_) => Packets::Other(packet.to_string()),
         // }
-        Packets::WSPacket(ws_packet_result.unwrap())
+        Packets::WSPacket(ws_packet_result.expect("Cannot turn packet into WSPacket using serde"))
     } else {
         // This is a plain string
         Packets::Other(packet.to_string())
     }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Packets {
-    Ping(u32),
-    WSPacket(WSPacket),
-    Other(String),
 }
 
 #[cfg(test)]
@@ -205,8 +264,8 @@ mod tests {
     #[test]
     fn test_ws_packet() {
         let packet = WSPacket {
-            m: "foo".to_string(),
-            p: into_inner_string("bar"),
+            m: "foo",
+            p: into_inner_identifier("bar"),
         };
 
         assert_eq!(
@@ -215,7 +274,7 @@ mod tests {
         );
         assert_eq!(
             packet.p,
-            into_inner_string("bar"),
+            into_inner_identifier("bar"),
             "The `p` field should the Vec field with ['world']"
         );
     }
@@ -223,8 +282,8 @@ mod tests {
     #[test]
     fn test_format_ws_packet() {
         let packet = WSPacket {
-            m: "foo".to_string(),
-            p: into_inner_string("bar"),
+            m: "foo",
+            p: into_inner_identifier("bar"),
         };
 
         let formatted_packet = packet.format();
@@ -294,10 +353,10 @@ mod tests {
         assert_eq!(
             packet_parse,
             Packets::WSPacket(WSPacket {
-                m: "qsd".to_string(),
-                p: vec![
-                    WSVecValues::String("xs_abcdABCD1234".to_string()),
-                    WSVecValues::InnerPriceData(InnerPriceData {
+                m: "qsd",
+                p: ArrayData {
+                    identifier: "xs_abcdABCD1234",
+                    data: Some(WSVecValues::InnerPriceData(InnerPriceData {
                         n: "BITMEX:XBT".to_string(),
                         s: "ok".to_string(),
                         v: InnerPriceDataV {
@@ -328,8 +387,8 @@ mod tests {
                             base_currency_id: Some("XTVCBTC".to_string()),
                             base_currency_logoid: None,
                         },
-                    }),
-                ],
+                    })),
+                },
             }),
             "The resulting packet should remove the length value and account for all values"
         );
