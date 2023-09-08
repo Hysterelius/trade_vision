@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::protocol::parse_each_packet;
 use crate::protocol::{
-    format_ws_ping, into_inner_identifier, parse_ws_packet, IntoWSVecValues, Packets, WSPacket,
+    format_ws_ping, into_inner_identifier, parse_ws_packet, IntoWSVecValues, Packet, WSPacket,
 };
 use crate::utils::generate_session_id;
 use futures_util::stream::SplitStream;
@@ -43,7 +43,7 @@ enum FieldTypes {
 mod message_processors {
     macro_rules! convert_to_message_processor {
         ($f:expr) => {
-            |message: &Packets, tx_to_send| Box::pin($f(message, tx_to_send))
+            |message: &Packet, tx_to_send| Box::pin($f(message, tx_to_send))
         };
     }
 }
@@ -138,7 +138,7 @@ pub struct Session<'a> {
 impl<'a> Session<'a> {
     /// Creates a new `Session` instance for communicating with `TradingView`.
     ///
-    /// This method generates a new session ID and sets up the necessary `WebSocket` packets to create a new session
+    /// This method generates a new session ID and sets up the necessary `WebSocket` Packet to create a new session
     /// and set the required fields for receiving price quotes. The resulting `Session` instance can be used to
     /// send and receive messages over the `WebSocket` connection.
     ///
@@ -302,7 +302,7 @@ impl<'a> Session<'a> {
     //     // });
     // }
 
-    pub fn add_processor(&mut self, processor: MessageProcessor) {
+    pub fn add_processor(&mut self, processor: MessageProcessor<'a>) {
         self.processors.push(processor);
     }
 }
@@ -310,7 +310,7 @@ impl<'a> Session<'a> {
 async fn handle_messages(
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     tx_to_send: Sender<String>,
-    processors: Processors<'_>,
+    processors: Processors<'static>,
 ) {
     // For each message received on the stream
     let reading = read.for_each(
@@ -319,13 +319,16 @@ async fn handle_messages(
             let tx_to_send = tx_to_send.clone();
             let processors = processors.clone();
             async {
-                let msg = message
-                    .expect("Message is an invalid format")
-                    .into_text()
-                    .expect("Could not turn into text");
-                println!("\x1b[91m🠳\x1b[0m {msg}");
+                if let Ok(message) = message {
+                    if let Ok(text) = message.into_text() {
+                        let txt: &'static str = Box::leak(text.into_boxed_str());
+                        // Use `text` as a regular string or convert to &str if needed
 
-                process_messages(processors, msg, tx_to_send);
+                        println!("\x1b[91m🠳\x1b[0m {}", txt);
+
+                        process_messages(processors, txt, tx_to_send);
+                    }
+                }
             }
         },
     );
@@ -343,39 +346,32 @@ async fn handle_messages(
 
 type Processors<'a> = Vec<MessageProcessor<'a>>;
 
-fn process_messages(processors: Processors, data: String, tx_to_send: Sender<String>) {
+fn process_messages(
+    processors: Processors<'static>,
+    data: &'static str,
+    tx_to_send: Sender<String>,
+) {
     let processors = processors.clone();
-    // Unwrap the message
-
-    // Parse the message
-    let parsed_data: Vec<&str> = parse_ws_packet(&data);
-    // Print the message to the terminal
-
-    // For each parsed message
+    let parsed_data = parse_ws_packet(data);
     for d in parsed_data {
-        let d = Arc::new(parse_each_packet(d));
-        // If the message is a heartbeat, send a heartbeat back
+        let d = parse_each_packet(d);
         for processor in &processors {
-            {
-                tokio::spawn({
-                    let d = d.clone();
-                    let tx_to_send = tx_to_send.clone();
-                    let processor = *processor;
-                    async move {
-                        processor(d.as_ref(), tx_to_send.clone()).await;
-                    }
-                });
-                // .await
-                // .expect("Task panicked")
-            }
+            tokio::spawn({
+                let d: Packet<'static> = d.clone();
+                let tx_to_send = tx_to_send.clone();
+                let processor = *processor;
+                async move {
+                    processor(&d, tx_to_send).await;
+                }
+            });
         }
     }
 }
 
 // Thanks to help of rust forum: https://users.rust-lang.org/t/general-async-function-pointer/97997
 /// Type of function that can process messages, cannot be async
-pub type MessageProcessor<'a> = fn(&'a Packets<'a>, mpsc::Sender<String>) -> BoxFuture<'a, ()>;
-// pub type MessageProcessorFunction = fn(&Packets, mpsc::Sender<String>) -> ();
+pub type MessageProcessor<'a> = fn(&'a Packet<'a>, mpsc::Sender<String>) -> BoxFuture<'a, ()>;
+// pub type MessageProcessorFunction = fn(&Packet, mpsc::Sender<String>) -> ();
 
 // pub fn convert_to_message_processor<Fut: Future<Output = ()> + Send + 'static>(
 //     f: impl Fn(String, mpsc::Sender<String>) -> Fut + 'static,
@@ -386,8 +382,8 @@ pub type MessageProcessor<'a> = fn(&'a Packets<'a>, mpsc::Sender<String>) -> Box
 /// This is a type of function that is able to process a message from the `TradingView` websocket.
 /// The function cannot be async because it is used in a for loop in the `process_stream` method and rust doesn't easily support async
 /// function types
-pub async fn process_heartbeat(message: &Packets<'_>, tx_to_send: mpsc::Sender<String>) {
-    if let Packets::Ping(num) = message {
+pub async fn process_heartbeat<'a>(message: &Packet<'a>, tx_to_send: mpsc::Sender<String>) {
+    if let Packet::Ping(num) = message {
         let ping = format_ws_ping(num);
         tx_to_send.send(ping).await.unwrap();
     };

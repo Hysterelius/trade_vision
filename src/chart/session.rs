@@ -1,7 +1,7 @@
 use tokio::sync::mpsc;
 
 use crate::protocol::{
-    format_ws_ping, into_inner_identifier, InnerPriceData, Packets, WSPacket, WSVecValues,
+    format_ws_ping, into_inner_identifier, InnerPriceData, Packet, WSPacket, WSVecValues,
 };
 use crate::quote::session::Session;
 use crate::utils::generate_session_id;
@@ -80,15 +80,15 @@ impl<'a> Chart<'a> {
     }
 }
 
-pub async fn process_chart_data(message: &Packets<'_>, tx_to_send: mpsc::Sender<String>) {
+pub async fn process_chart_data(packet: &Packet<'_>, tx_to_send: mpsc::Sender<String>) {
     // if let Packets::Ping(num) = message {
     //     let ping = format_ws_ping(num);
     //     tx_to_send.send(ping).await.unwrap();
     // };
 
-    if let Packets::WSPacket(packet) = message {
-        if let WSVecValues::InnerPriceData(data) = &packet.p[0] {
-            println!("{:?}", data);
+    if let Packet::WSPacket(packet) = packet {
+        if let Some(WSVecValues::InnerPriceData(data)) = &packet.p.data {
+            println!("{:#?}", data);
         }
     }
 }

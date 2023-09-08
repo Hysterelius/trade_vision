@@ -51,13 +51,11 @@ impl<'a> IntoWSVecValues<'a> for Vec<&'a str> {
     }
 }
 
-impl<'a> IntoWSVecValues<'a> for Vec<String> {
+impl<'a> IntoWSVecValues<'a> for &'a Vec<String> {
     fn into_ws_vec_values(self) -> ArrayData<'a> {
-        let first_string = self.get(0).map(|s| s.as_str()).unwrap_or("");
-        let second_string = self.get(1).map(|s| s.as_str()).unwrap_or("");
         ArrayData {
-            identifier: first_string,
-            data: Some(WSVecValues::String(second_string)),
+            identifier: &self[0],
+            data: Some(WSVecValues::String(&self[1])),
         }
     }
 }
@@ -71,7 +69,7 @@ pub struct InnerPriceData {
 
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-struct InnerPriceDataV {
+pub struct InnerPriceDataV {
     volume: Option<f64>,
     update_mode: Option<String>,
     typespecs: Option<Vec<String>>,
@@ -101,7 +99,7 @@ struct InnerPriceDataV {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Packets<'a> {
+pub enum Packet<'a> {
     Ping(u32),
     WSPacket(WSPacket<'a>),
     Other(String),
@@ -110,8 +108,8 @@ pub enum Packets<'a> {
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct ArrayData<'a> {
-    identifier: &'a str,
-    data: Option<WSVecValues<'a>>,
+    pub identifier: &'a str,
+    pub data: Option<WSVecValues<'a>>,
 }
 
 pub fn into_inner_identifier<'a>(val: &'a str) -> ArrayData<'a> {
@@ -129,7 +127,6 @@ impl<'a> WSPacket<'a> {
     }
 }
 
-/// Formats a ping to keep the `TradingView` connection alive.
 ///
 /// # Arguments
 ///
@@ -182,7 +179,7 @@ pub fn format_ws_ping(num: &u32) -> String {
 ///
 ///
 #[must_use]
-pub fn parse_ws_packet(packet: &str) -> Vec<&str> {
+pub fn parse_ws_packet(packet: &'static str) -> Vec<&'static str> {
     // let cleaned_packet = packet.replace("~h~", "");
     // let splitter_regex = Regex::new(r"~m~[0-9]{1,}~m~").unwrap();
 
@@ -191,7 +188,7 @@ pub fn parse_ws_packet(packet: &str) -> Vec<&str> {
     packet_fields
 }
 
-fn split_on_msg_length(packet: &str) -> Vec<&str> {
+fn split_on_msg_length<'a>(packet: &'a str) -> Vec<&'a str> {
     let is_digits = |s: &str| s.chars().all(|c| c.is_ascii_digit());
 
     // This function:
@@ -232,14 +229,14 @@ fn split_on_msg_length(packet: &str) -> Vec<&str> {
 /// let parsed_other_packet = parse_each_packet("This is a plain string packet");
 /// assert_eq!(parsed_other_packet, Packets::Other("This is a plain string packet".to_string()));
 /// ```
-pub fn parse_each_packet(packet: &str) -> Packets {
+pub fn parse_each_packet(packet: &str) -> Packet {
     if packet.contains("~h~") {
         // This is a ping packet
         let num: u32 = packet
             .replace("~h~", "")
             .parse()
             .expect("Error turning ping into number");
-        Packets::Ping(num)
+        Packet::Ping(num)
     } else if packet.contains('m') {
         // This is a WSPacket
         let ws_packet_result: Result<WSPacket, _> = serde_json::from_str(packet);
@@ -248,10 +245,10 @@ pub fn parse_each_packet(packet: &str) -> Packets {
         //     Ok(ws_packet) => Packets::WSPacket(ws_packet),
         //     Err(_) => Packets::Other(packet.to_string()),
         // }
-        Packets::WSPacket(ws_packet_result.expect("Cannot turn packet into WSPacket using serde"))
+        Packet::WSPacket(ws_packet_result.expect("Cannot turn packet into WSPacket using serde"))
     } else {
         // This is a plain string
-        Packets::Other(packet.to_string())
+        Packet::Other(packet.to_string())
     }
 }
 
@@ -352,7 +349,7 @@ mod tests {
 
         assert_eq!(
             packet_parse,
-            Packets::WSPacket(WSPacket {
+            Packet::WSPacket(WSPacket {
                 m: "qsd",
                 p: ArrayData {
                     identifier: "xs_abcdABCD1234",
