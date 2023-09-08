@@ -11,6 +11,7 @@
 // #![warn(missing_docs)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::nursery)]
+#![deny(elided_lifetimes_in_paths)]
 
 mod error;
 pub mod misc_requests;

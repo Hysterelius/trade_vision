@@ -17,8 +17,8 @@ enum ChartTypes {
 }
 
 #[allow(unused)]
-pub struct Chart<'a> {
-    session: Option<Session<'a>>,
+pub struct Chart {
+    session: Option<Session>,
     chart_session_id: String,
     replay_session_id: String,
     replay_mode: bool,
@@ -38,8 +38,13 @@ impl ChartTypes {
     }
 }
 
-impl<'a> Chart<'a> {
-    pub async fn new(session: Session<'static>) -> Chart<'_> {
+impl Chart {
+    /// .
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is a fault creating the session.
+    pub async fn new(session: Session) -> Self {
         let chart_session_id = generate_session_id(Some("cs"));
         // Not using send(), as this the initial function, which I don't want to be async as it has to be certain that the chart has been initialised
         session
@@ -54,7 +59,7 @@ impl<'a> Chart<'a> {
             .await
             .unwrap();
 
-        Chart {
+        Self {
             session: Some(session),
             chart_session_id,
             replay_session_id: generate_session_id(Some("rs")),
@@ -62,8 +67,13 @@ impl<'a> Chart<'a> {
         }
     }
 
-    pub async fn close(&'static mut self) -> Session {
-        let session: &Session<'static> = self.session.as_ref().expect("No session to close");
+    /// .
+    ///
+    /// # Panics
+    ///
+    /// Panics if that there is no session to close.
+    pub async fn close(mut self) -> Session {
+        let session: &Session = self.session.as_ref().expect("No session to close");
         let _ = session
             .tx_to_send
             .send(

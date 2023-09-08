@@ -2,8 +2,6 @@
 //! allows for the receiving of data and the defining of protocols
 use std::collections::hash_map;
 use std::collections::HashMap;
-use std::pin::Pin;
-use std::sync::Arc;
 
 use crate::protocol::parse_each_packet;
 use crate::protocol::{
@@ -11,7 +9,6 @@ use crate::protocol::{
 };
 use crate::utils::generate_session_id;
 use futures_util::stream::SplitStream;
-use futures_util::Future;
 
 use tokio::sync::mpsc;
 
@@ -127,15 +124,15 @@ const FIELDS: [&str; 48] = [
 /// * `read`: An optional tokio `WebSocket` stream, used for reading messages from the server
 /// * `processors`: A vector of message processors, used for processing incoming messages from the server
 /// * `chart_details`: An optional `ChartSession` struct containing the current state of the `TradingView` chart session
-pub struct Session<'a> {
+pub struct Session {
     pub session_id: String,
     pub tx_to_send: mpsc::Sender<String>,
     data: HashMap<String, (f64, f64)>,
     rx_to_send: Option<mpsc::Receiver<String>>,
-    processors: Vec<MessageProcessor<'a>>,
+    processors: Vec<MessageProcessor>,
 }
 
-impl<'a> Session<'a> {
+impl Session {
     /// Creates a new `Session` instance for communicating with `TradingView`.
     ///
     /// This method generates a new session ID and sets up the necessary `WebSocket` Packet to create a new session
@@ -149,7 +146,7 @@ impl<'a> Session<'a> {
     /// let session = Session::new();
     /// ```
     ///
-    pub async fn new() -> Session<'a> {
+    pub async fn new() -> Session {
         let session_id = generate_session_id(None);
         let (tx_to_send, rx_to_send) = mpsc::channel::<String>(20);
 
@@ -189,7 +186,7 @@ impl<'a> Session<'a> {
         }
     }
 
-    pub async fn connect(&'static mut self) {
+    pub async fn connect(&mut self) {
         // Connect to the WebSocket API and split the stream into read and write halves
         let mut request = CONNECTION.into_client_request().unwrap();
         request.headers_mut().append(
@@ -302,7 +299,7 @@ impl<'a> Session<'a> {
     //     // });
     // }
 
-    pub fn add_processor(&mut self, processor: MessageProcessor<'a>) {
+    pub fn add_processor(&mut self, processor: MessageProcessor) {
         self.processors.push(processor);
     }
 }
@@ -310,7 +307,7 @@ impl<'a> Session<'a> {
 async fn handle_messages(
     read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     tx_to_send: Sender<String>,
-    processors: Processors<'static>,
+    processors: Processors,
 ) {
     // For each message received on the stream
     let reading = read.for_each(
@@ -318,15 +315,15 @@ async fn handle_messages(
             // Clone the sender
             let tx_to_send = tx_to_send.clone();
             let processors = processors.clone();
-            async {
+            async move {
                 if let Ok(message) = message {
                     if let Ok(text) = message.into_text() {
-                        let txt: &'static str = Box::leak(text.into_boxed_str());
                         // Use `text` as a regular string or convert to &str if needed
+                        let txt: &'static str = text.leak();
 
-                        println!("\x1b[91m🠳\x1b[0m {}", txt);
+                        println!("\x1b[91m🠳\x1b[0m {txt}");
 
-                        process_messages(processors, txt, tx_to_send);
+                        process_messages(&processors, txt, &tx_to_send);
                     }
                 }
             }
@@ -344,13 +341,9 @@ async fn handle_messages(
 //   MM         MM    YA.   ,A9 YM.    , YM.    , L.   I8 L.   I8 YA.   ,A9 MM     L.   I8
 // .JMML.     .JMML.   `Ybmd9'   YMbmd'   `Mbmmd' M9mmmP' M9mmmP'  `Ybmd9'.JMML.   M9mmmP'
 
-type Processors<'a> = Vec<MessageProcessor<'a>>;
+type Processors = Vec<MessageProcessor>;
 
-fn process_messages(
-    processors: Processors<'static>,
-    data: &'static str,
-    tx_to_send: Sender<String>,
-) {
+fn process_messages(processors: &Processors, data: &str, tx_to_send: &Sender<String>) {
     let processors = processors.clone();
     let parsed_data = parse_ws_packet(data);
     for d in parsed_data {
@@ -369,8 +362,9 @@ fn process_messages(
 }
 
 // Thanks to help of rust forum: https://users.rust-lang.org/t/general-async-function-pointer/97997
+// More thanks to the forum to help me fix lifetimes: https://users.rust-lang.org/t/guidance-on-custom-lifetimes-and-lifetime-function-parameters/99585/2
 /// Type of function that can process messages, cannot be async
-pub type MessageProcessor<'a> = fn(&'a Packet<'a>, mpsc::Sender<String>) -> BoxFuture<'a, ()>;
+pub type MessageProcessor = for<'a> fn(&'a Packet<'a>, mpsc::Sender<String>) -> BoxFuture<'a, ()>;
 // pub type MessageProcessorFunction = fn(&Packet, mpsc::Sender<String>) -> ();
 
 // pub fn convert_to_message_processor<Fut: Future<Output = ()> + Send + 'static>(

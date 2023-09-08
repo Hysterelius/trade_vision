@@ -1,5 +1,5 @@
 use tokio::signal;
-use trade_vision::{chart::session::Chart, quote::session::Session};
+use trade_vision::quote::session::Session;
 
 extern crate trade_vision;
 
@@ -13,7 +13,7 @@ async fn main() {
     // Adds the ETH/USDT symbol to the session
     session.add_symbol("BINANCE:ETHUSDT").await;
 
-    let _chart = Chart::new(session).await;
+    // let _chart = Chart::new(session).await;
 
     signal::ctrl_c().await.unwrap();
 }
