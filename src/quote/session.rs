@@ -2,6 +2,7 @@
 //! allows for the receiving of data and the defining of protocols
 use std::collections::hash_map;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::protocol::parse_each_packet;
 use crate::protocol::{
@@ -40,7 +41,7 @@ enum FieldTypes {
 mod message_processors {
     macro_rules! convert_to_message_processor {
         ($f:expr) => {
-            |message: &Packet, tx_to_send| Box::pin($f(message, tx_to_send))
+            |message: &Packet<'_>, tx_to_send| Box::pin($f(message, tx_to_send))
         };
     }
 }
@@ -302,6 +303,23 @@ impl Session {
     pub fn add_processor(&mut self, processor: MessageProcessor) {
         self.processors.push(processor);
     }
+
+    pub async fn process_messages(&self, data: String, tx_to_send: Sender<String>) {
+        let parsed_data = parse_ws_packet(data); // Access data using Arc
+
+        for d in parsed_data {
+            for processor in &self.processors {
+                let d = d.clone();
+                let tx_to_send = tx_to_send.clone();
+                let processor = processor.clone();
+
+                tokio::spawn(async move {
+                    let boxed_processor = processor(&d, tx_to_send);
+                    boxed_processor.await;
+                });
+            }
+        }
+    }
 }
 
 async fn handle_messages(
@@ -319,11 +337,10 @@ async fn handle_messages(
                 if let Ok(message) = message {
                     if let Ok(text) = message.into_text() {
                         // Use `text` as a regular string or convert to &str if needed
-                        let txt: &'static str = text.leak();
 
-                        println!("\x1b[91m🠳\x1b[0m {txt}");
+                        println!("\x1b[91m🠳\x1b[0m {text}");
 
-                        process_messages(&processors, txt, &tx_to_send);
+                        process_messages(&processors, text, &tx_to_send);
                     }
                 }
             }
@@ -343,14 +360,13 @@ async fn handle_messages(
 
 type Processors = Vec<MessageProcessor>;
 
-fn process_messages(processors: &Processors, data: &str, tx_to_send: &Sender<String>) {
+fn process_messages(processors: &Processors, data: String, tx_to_send: &Sender<String>) {
     let processors = processors.clone();
     let parsed_data = parse_ws_packet(data);
     for d in parsed_data {
-        let d = parse_each_packet(d);
         for processor in &processors {
             tokio::spawn({
-                let d: Packet<'static> = d.clone();
+                let d: Packet<'_> = d.clone();
                 let tx_to_send = tx_to_send.clone();
                 let processor = *processor;
                 async move {

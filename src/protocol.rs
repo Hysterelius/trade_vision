@@ -1,41 +1,19 @@
-//! This is a module for formatting incoming and outgoing packets
+use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 
-/// A struct for representing a `WebSocket` packet.
-///
-/// # Fields
-///
-/// * `m` - A string representing the message.
-/// * `p` - A vector of strings representing the parameters.
-///
-/// # Notes
-/// A valid schema is `~m~X~m~{Y}~`
-///
-/// With `Y` being a valid json string
-///
-/// With `X` being the length of json string `Y`
-///
-///
-/// - `WSPacket`
-///   |- m: &str
-///   |- p:
-///         |- identifier: &str
-///         |- data: Option<WSVecValues>
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct WSPacket<'a> {
     pub m: &'a str,
     pub p: ArrayData<'a>,
 }
 
-// TODO: add better names for below structs & enums
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum WSVecValues<'a> {
     String(&'a str),
-    InnerPriceData(Box<InnerPriceData>),
+    InnerPriceData(Box<InnerPriceData<'a>>),
 }
 
 pub trait IntoWSVecValues<'a> {
@@ -61,9 +39,9 @@ impl<'a> IntoWSVecValues<'a> for &'a Vec<String> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct InnerPriceData {
-    n: String,
-    s: String,
+pub struct InnerPriceData<'a> {
+    n: &'a str,
+    s: &'a str,
     v: InnerPriceDataV,
 }
 
@@ -113,7 +91,7 @@ pub struct ArrayData<'a> {
 }
 
 #[must_use]
-pub const fn into_inner_identifier(val: &str) -> ArrayData {
+pub const fn into_inner_identifier(val: &str) -> ArrayData<'_> {
     ArrayData {
         identifier: val,
         data: None,
@@ -128,129 +106,54 @@ impl<'a> WSPacket<'a> {
     }
 }
 
-///
-/// # Arguments
-///
-/// * `num` - The corresponding ping number
-///
-/// # Examples
-///
-/// ```
-/// use trade_vision::protocol::format_ws_ping;
-/// let formatted_ping = format_ws_ping(&(1 as u32));
-///
-/// assert_eq!(
-///     formatted_ping,
-///     "~m~4~m~~h~1",
-/// );
-///
-/// ```
-///
-///
 #[must_use]
 pub fn format_ws_ping(num: &u32) -> String {
-    // Adds three to the length of the number to account for the `~h~` characters
     format!("~m~{}~m~~h~{}", (num.to_string().len() + 3), num)
 }
 
-/// Takes a incoming `TradingView` packet and reformats it for interpretation.
-///
-/// # Arguments
-///
-/// * `packet` - The incoming packet in a form of a string
-///
-/// # Examples
-///
-/// ```
-/// use trade_vision::protocol::parse_ws_packet;
-/// let parsed_packet = parse_ws_packet("~m~4~m~~h~1");
-///
-/// assert_eq!(
-///     parsed_packet,
-///     vec!["~h~1"]
-/// );
-///
-/// let parsed_packet2 = parse_ws_packet(r#"~m~87~m~{"m":"qsd","p":["qs_0J8daiOQEZzH",{"n":"BINANCE:ETHUSDT","s":"ok","v":{"lp":1849.09}}]}"#);
-/// assert_eq!(
-///    parsed_packet2,
-///    vec!["{\"m\":\"qsd\",\"p\":[\"qs_0J8daiOQEZzH\",{\"n\":\"BINANCE:ETHUSDT\",\"s\":\"ok\",\"v\":{\"lp\":1849.09}}]}"]
-/// );
-///
-/// ```
-///
-///
 #[must_use]
-pub fn parse_ws_packet(packet: &'static str) -> Vec<&'static str> {
-    // let cleaned_packet = packet.replace("~h~", "");
-    // let splitter_regex = Regex::new(r"~m~[0-9]{1,}~m~").unwrap();
-
-    let packet_fields: Vec<&str> = split_on_msg_length(packet);
+pub fn parse_ws_packet<'a, S: AsRef<str> + 'a>(packet: S) -> Vec<Packet<'a>>
+where
+    std::string::String: std::convert::From<S>,
+{
+    let owned_string: String = packet.into();
+    let leaked_str: &'static str = owned_string.leak();
+    let packet_fields: Vec<&str> = split_on_msg_length(leaked_str);
 
     packet_fields
+        .into_iter()
+        .map(|p| {
+            let packet = p; // Move the value of `packet` out of the closure.
+            parse_each_packet(packet)
+        }) // The value of `packet` is not borrowed by the closure.
+        .collect::<Vec<Packet<'a>>>()
 }
 
 fn split_on_msg_length(packet: &str) -> Vec<&str> {
-    let is_digits = |s: &str| s.chars().all(|c| c.is_ascii_digit());
+    let is_digits = |s: String| s.chars().all(|c| c.is_ascii_digit());
 
-    // This function:
-    // 1. Splits the packet on the `~m~` characters so "~m~1~m~my_important_message" becomes ["1", "my_important_message"]
-    // 2. Filters out any empty strings and strings that contain only digits (which would be the length of the message (in ~m~))
     packet
         .split("~m~")
-        .filter(|x| !x.is_empty() && !is_digits(x))
+        .filter(|x| !x.is_empty() && !is_digits((*x).to_string()))
+        // .map(std::string::ToString::to_string)
         .collect()
 }
 
 #[must_use]
-/// Parses each packet and returns a `Packets` enum variant based on the packet type.
-///
-/// # Arguments
-///
-/// * `packet` - The incoming packet in a form of a string
-///
-/// # Panics
-///
-/// This function will panic if the incoming ping packet cannot be converted to a number.
-/// Or if the resulting 'm' packet cannot be turned into a `WSPacket` using serde.
-///
-/// # Examples
-///
-/// ```
-/// use trade_vision::protocol::{parse_each_packet, Packets};
-///
-/// let parsed_ping_packet = parse_each_packet("~m~4~m~~h~1");
-/// assert_eq!(parsed_ping_packet, Packets::Ping(&(1 as u32))));
-///
-/// let parsed_ws_packet = parse_each_packet(r#"~m~87~m~{"m":"qsd","p":["qs_0J8daiOQEZzH",{"n":"BINANCE:ETHUSDT","s":"ok","v":{"lp":1849.09}}]}"#);
-/// assert_eq!(
-///     parsed_ws_packet,
-///     Packets::WSPacket(serde_json::from_str(r#"{"m":"qsd","p":["qs_0J8daiOQEZzH",{"n":"BINANCE:ETHUSDT","s":"ok","v":{"lp":1849.09}}]}"#).unwrap())
-/// );
-///
-/// let parsed_other_packet = parse_each_packet("This is a plain string packet");
-/// assert_eq!(parsed_other_packet, Packets::Other("This is a plain string packet".to_string()));
-/// ```
-pub fn parse_each_packet(packet: &str) -> Packet {
+pub fn parse_each_packet(packet: &'static str) -> Packet<'static> {
     if packet.contains("~h~") {
-        // This is a ping packet
         let num: u32 = packet
             .replace("~h~", "")
             .parse()
             .expect("Error turning ping into number");
         Packet::Ping(num)
     } else if packet.contains('m') {
-        // This is a WSPacket
-        let ws_packet_result: Result<WSPacket, _> = serde_json::from_str(packet);
+        let ws_packet_result: Result<WSPacket<'static>, _> = serde_json::from_str(packet);
 
-        // match ws_packet_result {
-        //     Ok(ws_packet) => Packets::WSPacket(ws_packet),
-        //     Err(_) => Packets::Other(packet.to_string()),
-        // }
         Packet::WSPacket(Box::new(
             ws_packet_result.expect("Cannot turn packet into WSPacket using serde"),
         ))
     } else {
-        // This is a plain string
         Packet::Other(packet.to_string())
     }
 }
@@ -321,7 +224,7 @@ mod tests {
 
         assert_eq!(
             ping_parse,
-            vec!["~h~1"],
+            vec![Packet::Ping(1)],
             "The resulting ping should remove the length value and only return '~h~1'"
         );
 
@@ -331,7 +234,13 @@ mod tests {
 
         assert_eq!(
             packet_parse,
-            vec!["{\"m\":\"quote_completed\",\"p\":[\"xs_abcdABCD1234\",\"BITMEX:XBT\"]}"],
+            vec![Packet::WSPacket(Box::new(WSPacket {
+                m: "quote_completed",
+                p: ArrayData {
+                    identifier: "xs_abcdABCD1234",
+                    data: Some(WSVecValues::String("BITMEX:XBT"))
+                }
+            }))],
             "The resulting packet should remove the length value and account for all values"
         );
 
@@ -339,7 +248,60 @@ mod tests {
 
         assert_eq!(
             multi_packet_parse,
-            vec!["{\"m\":\"qsd\",\"p\":[\"xs_abcdABCD1234\",{\"n\":\"BITMEX:XBT\",\"s\":\"ok\",\"v\":{\"volume\":1e+100,\"update_mode\":\"streaming\",\"typespecs\":[],\"type\":\"crypto\",\"short_name\":\"XBT\",\"pro_name\":\"BITMEX:XBT\",\"pricescale\":100,\"original_name\":\"BITMEX:XBT\",\"minmove2\":0,\"minmov\":1,\"lp_time\":1000000000,\"lp\":10000.11,\"listed_exchange\":\"BITMEX\",\"is_tradable\":true,\"fractional\":false,\"format\":\"price\",\"exchange\":\"BITMEX\",\"description\":\"Bitcoin / US Dollar Index\",\"current_session\":\"market\",\"currency_id\":\"USD\",\"currency_code\":\"USD\",\"currency-logoid\":\"country/US\",\"chp\":0.79,\"ch\":133.27,\"base_currency_id\":\"XTVCBTC\",\"base-currency-logoid\":\"crypto/XTVCBTC\"}}]}", "{\"m\":\"quote_completed\",\"p\":[\"xs_abcdABCD1234\",\"BITMEX:XBT\"]}", "{\"m\":\"quote_completed\",\"p\":[\"xs_abcdABCD1234\",\"BITMEX:XBT\"]}"],
+            vec![
+                Packet::WSPacket(Box::new(WSPacket {
+                    m: "qsd",
+                    p: ArrayData {
+                        identifier: "xs_abcdABCD1234",
+                        data: Some(WSVecValues::InnerPriceData(Box::new(InnerPriceData {
+                            n: "BITMEX:XBT",
+                            s: "ok",
+                            v: InnerPriceDataV {
+                                volume: Some(1e100),
+                                update_mode: Some("streaming".to_string()),
+                                typespecs: Some(vec![]),
+                                r#type: Some("crypto".to_string()),
+                                short_name: Some("XBT".to_string()),
+                                pro_name: Some("BITMEX:XBT".to_string()),
+                                pricescale: Some(100),
+                                original_name: Some("BITMEX:XBT".to_string()),
+                                minmove2: Some(0),
+                                minmov: Some(1),
+                                lp_time: Some(1_000_000_000),
+                                lp: Some(10000.11),
+                                listed_exchange: Some("BITMEX".to_string()),
+                                is_tradable: Some(true),
+                                fractional: Some(false),
+                                format: Some("price".to_string()),
+                                exchange: Some("BITMEX".to_string()),
+                                description: Some("Bitcoin / US Dollar Index".to_string()),
+                                current_session: Some("market".to_string()),
+                                currency_id: Some("USD".to_string()),
+                                currency_code: Some("USD".to_string()),
+                                currency_logoid: None,
+                                chp: Some(0.79),
+                                ch: Some(133.27),
+                                base_currency_id: Some("XTVCBTC".to_string()),
+                                base_currency_logoid: None,
+                            },
+                        }))),
+                    },
+                })),
+                Packet::WSPacket(Box::new(WSPacket {
+                    m: "quote_completed",
+                    p: ArrayData {
+                        identifier: "xs_abcdABCD1234",
+                        data: Some(WSVecValues::String("BITMEX:XBT"))
+                    }
+                })),
+                Packet::WSPacket(Box::new(WSPacket {
+                    m: "quote_completed",
+                    p: ArrayData {
+                        identifier: "xs_abcdABCD1234",
+                        data: Some(WSVecValues::String("BITMEX:XBT"))
+                    }
+                }))
+            ],
             "The resulting packet should remove the length value and return 2 strings within a Vec"
         );
     }
@@ -357,8 +319,8 @@ mod tests {
                 p: ArrayData {
                     identifier: "xs_abcdABCD1234",
                     data: Some(WSVecValues::InnerPriceData(Box::new(InnerPriceData {
-                        n: "BITMEX:XBT".to_string(),
-                        s: "ok".to_string(),
+                        n: "BITMEX:XBT",
+                        s: "ok",
                         v: InnerPriceDataV {
                             volume: Some(1e100),
                             update_mode: Some("streaming".to_string()),
