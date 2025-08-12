@@ -1,4 +1,3 @@
-use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
@@ -98,7 +97,7 @@ pub const fn into_inner_identifier(val: &str) -> ArrayData<'_> {
     }
 }
 
-impl<'a> WSPacket<'a> {
+impl WSPacket<'_> {
     #[must_use]
     pub fn format(&self) -> String {
         let json = serde_json::to_string(self).unwrap();

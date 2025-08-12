@@ -2,9 +2,7 @@
 //! allows for the receiving of data and the defining of protocols
 use std::collections::hash_map;
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use crate::protocol::parse_each_packet;
 use crate::protocol::{
     format_ws_ping, into_inner_identifier, parse_ws_packet, IntoWSVecValues, Packet, WSPacket,
 };
@@ -147,7 +145,7 @@ impl Session {
     /// let session = Session::new();
     /// ```
     ///
-    pub async fn new() -> Session {
+    pub async fn new() -> Self {
         let session_id = generate_session_id(None);
         let (tx_to_send, rx_to_send) = mpsc::channel::<String>(20);
 
@@ -311,7 +309,7 @@ impl Session {
             for processor in &self.processors {
                 let d = d.clone();
                 let tx_to_send = tx_to_send.clone();
-                let processor = processor.clone();
+                let processor = *processor;
 
                 tokio::spawn(async move {
                     let boxed_processor = processor(&d, tx_to_send);
@@ -390,13 +388,14 @@ pub type MessageProcessor = for<'a> fn(&'a Packet<'a>, mpsc::Sender<String>) -> 
 // }
 
 /// This is a type of function that is able to process a message from the `TradingView` websocket.
+///
 /// The function cannot be async because it is used in a for loop in the `process_stream` method and rust doesn't easily support async
 /// function types
 pub async fn process_heartbeat<'a>(message: &Packet<'a>, tx_to_send: mpsc::Sender<String>) {
     if let Packet::Ping(num) = message {
         let ping = format_ws_ping(num);
         tx_to_send.send(ping).await.unwrap();
-    };
+    }
 }
 
 async fn send_message(
