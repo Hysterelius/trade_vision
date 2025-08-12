@@ -1,8 +1,8 @@
 //! Houses utility functions that are used throughout the program to certain functions
 //! which allow for communication with the `TradingView` server
 
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::distr::Alphanumeric;
+use rand::{rng, Rng};
 
 /// Generates a random session ID.
 ///
@@ -24,7 +24,7 @@ use rand::{thread_rng, Rng};
 /// ```
 ///
 pub fn generate_session_id(prefix: Option<&str>) -> String {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let random_string: String = (&mut rng)
         .sample_iter(Alphanumeric)
         .take(12)

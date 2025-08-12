@@ -340,7 +340,7 @@ async fn handle_messages(
 
                         println!("\x1b[91m🠳\x1b[0m {text}");
 
-                        process_messages(&processors, text, &tx_to_send);
+                        process_messages(&processors, text.to_string(), &tx_to_send);
                     }
                 }
             }
